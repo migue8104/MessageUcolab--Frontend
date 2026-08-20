@@ -11,7 +11,6 @@ const categories = ref([])
 const states = ref([])
 const envStates = ref([])
 
-const expiration = ref('')
 const formError = ref('')
 const success = ref('')
 
@@ -45,9 +44,6 @@ async function loadCatalogs() {
     if (categories.value.length) form.categoryId = categories.value[0].value
     if (states.value.length) form.statusId = states.value[0].value
     if (envStates.value.length) form.messageEnvironmentStateId = envStates.value[0].value
-
-    // Fecha de expiración por defecto: dentro de 30 días
-    expiration.value = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().slice(0, 16)
   } catch (e) {
     formError.value = 'Error cargando catálogos: ' + e.message
   }
@@ -69,20 +65,6 @@ async function onAppChange() {
     functionalities.value = funcs
   } catch (e) {
     formError.value = 'Error cargando entorno/funcionalidad: ' + e.message
-  }
-}
-
-async function generateToken() {
-  formError.value = ''
-  success.value = ''
-  try {
-    const data = await messageApi.generateToken(form.applicationId, {
-      expirationDate: expiration.value + ':00',
-      environmentId: form.environmentId
-    })
-    store.setToken(data[0])
-  } catch (e) {
-    formError.value = e.message
   }
 }
 
@@ -130,7 +112,12 @@ onMounted(loadCatalogs)
 
 <template>
   <section class="card">
-    <h2>1. Aplicación, entorno y funcionalidad</h2>
+    <h2>Crear mensaje</h2>
+
+    <p v-if="!store.token" class="warn">
+      No hay token. Ve a la pestaña "Crear token" y genera uno primero.
+    </p>
+
     <div class="grid">
       <label>
         Aplicación
@@ -155,23 +142,6 @@ onMounted(loadCatalogs)
       </label>
     </div>
 
-    <h2>2. Generar token</h2>
-    <div class="grid">
-      <label>
-        Fecha de expiración
-        <input type="datetime-local" v-model="expiration" />
-      </label>
-      <div class="field">
-        <button :disabled="!form.applicationId || !form.environmentId" @click="generateToken">
-          Generar token
-        </button>
-      </div>
-    </div>
-    <p v-if="store.token" class="ok">
-      Token generado: <code>{{ store.token }}</code>
-    </p>
-
-    <h2>3. Crear mensaje</h2>
     <div class="grid">
       <label>
         Código

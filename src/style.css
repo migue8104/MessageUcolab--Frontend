@@ -61,6 +61,7 @@ body {
   cursor: pointer;
   font-size: 14px;
   border-bottom: 2px solid transparent;
+  color: #1f2937;
 }
 
 .tabs button.active {
