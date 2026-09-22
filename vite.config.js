@@ -6,7 +6,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/messageucolab': {
-        target: 'http://localhost:8085',
+        target: 'http://52.251.53.20:8000',
         changeOrigin: true
       }
     }

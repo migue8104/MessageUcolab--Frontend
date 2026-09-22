@@ -1,15 +1,12 @@
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, watch } from 'vue'
 import { catalogApi, messageApi } from '../api'
 import { store } from '../store'
 
-const applications = ref([])
+const emit = defineEmits(['created'])
+
 const environments = ref([])
 const functionalities = ref([])
-const types = ref([])
-const categories = ref([])
-const states = ref([])
-const envStates = ref([])
 
 const formError = ref('')
 const success = ref('')
@@ -27,27 +24,26 @@ const form = reactive({
   environmentId: ''
 })
 
-// Los catálogos de mensaje devuelven ids en cero; se usan las claves derivadas de name.toLowerCase()
-function toOptions(list) {
-  return list.map((item) => ({ name: item.name, value: item.name.toLowerCase() }))
+// Cuando los catálogos del store llegan, seleccionamos valores por defecto
+// solo si el usuario aún no eligió uno.
+function setCatalogDefaults() {
+  if (store.types.length && !form.typeId) form.typeId = store.types[0].value
+  if (store.categories.length && !form.categoryId) form.categoryId = store.categories[0].value
+  if (store.states.length && !form.statusId) form.statusId = store.states[0].value
+  if (store.envStates.length && !form.messageEnvironmentStateId)
+    form.messageEnvironmentStateId = store.envStates[0].value
 }
 
-async function loadCatalogs() {
-  try {
-    applications.value = await catalogApi.applications()
-    types.value = toOptions(await catalogApi.messageTypes())
-    categories.value = toOptions(await catalogApi.messageCategories())
-    states.value = toOptions(await catalogApi.messageStates())
-    envStates.value = toOptions(await catalogApi.messageEnvironmentStates())
-
-    if (types.value.length) form.typeId = types.value[0].value
-    if (categories.value.length) form.categoryId = categories.value[0].value
-    if (states.value.length) form.statusId = states.value[0].value
-    if (envStates.value.length) form.messageEnvironmentStateId = envStates.value[0].value
-  } catch (e) {
-    formError.value = 'Error cargando catálogos: ' + e.message
-  }
-}
+watch(
+  [
+    () => store.types.length,
+    () => store.categories.length,
+    () => store.states.length,
+    () => store.envStates.length
+  ],
+  setCatalogDefaults,
+  { immediate: true }
+)
 
 async function onAppChange() {
   form.functionalityId = ''
@@ -80,7 +76,7 @@ async function createMessage() {
   if (!form.applicationId || !form.environmentId || !form.functionalityId)
     return (formError.value = 'Selecciona aplicación, entorno y funcionalidad.')
 
-  const app = applications.value.find((a) => a.id === form.applicationId)
+  const app = store.applications.find((a) => a.id === form.applicationId)
 
   const payload = {
     code: form.code,
@@ -102,12 +98,11 @@ async function createMessage() {
     form.code = ''
     form.title = ''
     form.content = ''
+    emit('created')
   } catch (e) {
     formError.value = e.message
   }
 }
-
-onMounted(loadCatalogs)
 </script>
 
 <template>
@@ -123,7 +118,7 @@ onMounted(loadCatalogs)
         Aplicación
         <select v-model="form.applicationId" @change="onAppChange">
           <option value="">Seleccionar…</option>
-          <option v-for="a in applications" :key="a.id" :value="a.id">{{ a.name }}</option>
+          <option v-for="a in store.applications" :key="a.id" :value="a.id">{{ a.name }}</option>
         </select>
       </label>
       <label>
@@ -150,25 +145,25 @@ onMounted(loadCatalogs)
       <label>
         Tipo
         <select v-model="form.typeId">
-          <option v-for="t in types" :key="t.value" :value="t.value">{{ t.name }}</option>
+          <option v-for="t in store.types" :key="t.value" :value="t.value">{{ t.name }}</option>
         </select>
       </label>
       <label>
         Categoría
         <select v-model="form.categoryId">
-          <option v-for="c in categories" :key="c.value" :value="c.value">{{ c.name }}</option>
+          <option v-for="c in store.categories" :key="c.value" :value="c.value">{{ c.name }}</option>
         </select>
       </label>
       <label>
         Estado
         <select v-model="form.statusId">
-          <option v-for="s in states" :key="s.value" :value="s.value">{{ s.name }}</option>
+          <option v-for="s in store.states" :key="s.value" :value="s.value">{{ s.name }}</option>
         </select>
       </label>
       <label>
         Estado de entorno
         <select v-model="form.messageEnvironmentStateId">
-          <option v-for="s in envStates" :key="s.value" :value="s.value">{{ s.name }}</option>
+          <option v-for="s in store.envStates" :key="s.value" :value="s.value">{{ s.name }}</option>
         </select>
       </label>
       <label>

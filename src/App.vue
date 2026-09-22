@@ -1,9 +1,11 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { store } from './store'
+import CreateCatalog from './components/CreateCatalog.vue'
 import CreateMessage from './components/CreateMessage.vue'
 import CreateToken from './components/CreateToken.vue'
 import ListMessages from './components/ListMessages.vue'
+import TranslateMessage from './components/TranslateMessage.vue'
 import ViewMessage from './components/ViewMessage.vue'
 
 const tab = ref('list')
@@ -17,6 +19,33 @@ function goView(code) {
 function clearToken() {
   store.setToken('')
 }
+
+// Cuando se crea un mensaje o token, refrescamos los datos al instante
+function onMessageCreated() {
+  store.loadMessages()
+  store.loadCatalogs()
+}
+
+function onTokenCreated() {
+  store.loadCatalogs()
+}
+
+function onCatalogCreated() {
+  store.loadCatalogs()
+}
+
+// Polling: re-consulta catálogos y mensajes para reflejar cambios externos
+// (ej. eliminación de un item en la base de datos) sin recargar el navegador.
+let pollId = null
+
+onMounted(() => {
+  store.refresh()
+  pollId = setInterval(() => store.refresh(), 2000)
+})
+
+onUnmounted(() => {
+  clearInterval(pollId)
+})
 </script>
 
 <template>
@@ -31,13 +60,17 @@ function clearToken() {
     <button :class="{ active: tab === 'list' }" @click="tab = 'list'">Mensajes</button>
     <button :class="{ active: tab === 'create' }" @click="tab = 'create'">Crear mensaje</button>
     <button :class="{ active: tab === 'token' }" @click="tab = 'token'">Crear token</button>
+    <button :class="{ active: tab === 'catalog' }" @click="tab = 'catalog'">Catálogos</button>
+    <button :class="{ active: tab === 'translate' }" @click="tab = 'translate'">Traducir</button>
     <button :class="{ active: tab === 'view' }" @click="tab = 'view'">Consultar</button>
   </nav>
 
   <main>
     <ListMessages v-if="tab === 'list'" @view="goView" />
-    <CreateMessage v-else-if="tab === 'create'" />
-    <CreateToken v-else-if="tab === 'token'" />
+    <CreateMessage v-else-if="tab === 'create'" @created="onMessageCreated" />
+    <CreateToken v-else-if="tab === 'token'" @created="onTokenCreated" />
+    <CreateCatalog v-else-if="tab === 'catalog'" @created="onCatalogCreated" />
+    <TranslateMessage v-else-if="tab === 'translate'" />
     <ViewMessage v-else :code="viewCode" />
   </main>
 </template>

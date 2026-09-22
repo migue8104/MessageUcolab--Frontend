@@ -47,9 +47,23 @@ export const messageApi = {
   create: (payload, token) =>
     request('/v1/application/message', { method: 'POST', body: payload, token }),
 
-  list: (page, size, token) =>
-    request(`/v1/application/messages?page=${page}&size=${size}&sort=asc&columnSort=code`, { token }),
+  createApplication: (payload, token) =>
+    request('/v1/application', { method: 'POST', body: payload, token }),
+
+  createEnvironment: (payload, token) =>
+    request('/v1/application/environment', { method: 'POST', body: payload, token }),
+
+  createFunctionality: (payload, token) =>
+    request('/v1/application/functionality', { method: 'POST', body: payload, token }),
+
+  list: (page, size, environmentId) => {
+    const env = environmentId ? `&environmentId=${encodeURIComponent(environmentId)}` : ''
+    return request(`/v1/application/messages?page=${page}&size=${size}&sort=asc&columnSort=code${env}`)
+  },
 
   byCode: (code, token) =>
-    request(`/v1/application/messages/${encodeURIComponent(code)}`, { token })
+    request(`/v1/application/messages/${encodeURIComponent(code)}`, { token }),
+
+  translate: (code, targetLanguage, token) =>
+    request(`/v1/application/messages/${encodeURIComponent(code)}/translation?sourceLanguage=auto&targetLanguage=${encodeURIComponent(targetLanguage)}`, { token })
 }

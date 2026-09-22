@@ -3,7 +3,8 @@ import { ref, reactive, onMounted } from 'vue'
 import { catalogApi, messageApi } from '../api'
 import { store } from '../store'
 
-const applications = ref([])
+const emit = defineEmits(['created'])
+
 const environments = ref([])
 const expiration = ref('')
 const error = ref('')
@@ -13,15 +14,10 @@ const form = reactive({
   environmentId: ''
 })
 
-async function loadCatalogs() {
-  try {
-    applications.value = await catalogApi.applications()
-    // Fecha de expiración por defecto: dentro de 30 días
-    expiration.value = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().slice(0, 16)
-  } catch (e) {
-    error.value = 'Error cargando catálogos: ' + e.message
-  }
-}
+onMounted(() => {
+  // Fecha de expiración por defecto: dentro de 30 días
+  expiration.value = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().slice(0, 16)
+})
 
 async function onAppChange() {
   form.environmentId = ''
@@ -43,12 +39,11 @@ async function generateToken() {
       environmentId: form.environmentId
     })
     store.setToken(data[0])
+    emit('created')
   } catch (e) {
     error.value = e.message
   }
 }
-
-onMounted(loadCatalogs)
 </script>
 
 <template>
@@ -60,7 +55,7 @@ onMounted(loadCatalogs)
         Aplicación
         <select v-model="form.applicationId" @change="onAppChange">
           <option value="">Seleccionar…</option>
-          <option v-for="a in applications" :key="a.id" :value="a.id">{{ a.name }}</option>
+          <option v-for="a in store.applications" :key="a.id" :value="a.id">{{ a.name }}</option>
         </select>
       </label>
       <label>
@@ -83,7 +78,7 @@ onMounted(loadCatalogs)
     </button>
 
     <p v-if="store.token" class="ok">
-      Token generado: <code>{{ store.token }}</code>
+      Token generado correctamente. Ya está activo y se enviará automáticamente en las peticiones.
     </p>
   </section>
 </template>

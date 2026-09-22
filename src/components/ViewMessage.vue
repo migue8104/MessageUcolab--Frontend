@@ -5,14 +5,14 @@ import { store } from '../store'
 
 const props = defineProps({ code: { type: String, default: '' } })
 
-const code = ref('')
+const inputCode = ref('')
 const result = ref(null)
 const error = ref('')
 
 async function load() {
   error.value = ''
   result.value = null
-  const value = code.value.trim()
+  const value = inputCode.value.trim()
   if (!store.token || !value) return
   try {
     const data = await messageApi.byCode(value, store.token)
@@ -27,7 +27,7 @@ watch(
   () => props.code,
   (value) => {
     if (value) {
-      code.value = value
+      inputCode.value = value
       load()
     }
   },
@@ -46,11 +46,11 @@ watch(
     <template v-else>
       <div class="toolbar">
         <input
-          v-model="code"
+          v-model="inputCode"
           placeholder="Código del mensaje (ej. REL_TO_DOC_006)"
           @keyup.enter="load"
         />
-        <button :disabled="!code.trim()" @click="load">Consultar</button>
+        <button :disabled="!inputCode.trim()" @click="load">Consultar</button>
       </div>
 
       <p v-if="error" class="err">{{ error }}</p>
