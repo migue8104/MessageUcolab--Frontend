@@ -2,6 +2,11 @@ trigger:
   - main
   - develop
 
+# Valida cada PR dirigido a estas ramas (PR validation)
+pr:
+  - main
+  - develop
+
 pool:
   vmImage: 'ubuntu-latest'
 
