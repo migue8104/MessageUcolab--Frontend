@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from 'vue'
-import { messageApi } from '../api'
+import { messageApi, toMessageCode } from '../api'
 import { store } from '../store'
 
 const code = ref('')
@@ -8,6 +8,7 @@ const targetLanguage = ref('en')
 const result = ref(null)
 const error = ref('')
 const loading = ref(false)
+const translationForbidden = ref(false)
 
 const languages = [
   { code: 'en', name: 'English' },
@@ -23,9 +24,11 @@ async function translate() {
   result.value = null
   loading.value = true
   try {
-    const data = await messageApi.translate(code.value.trim(), targetLanguage.value, store.token)
+    const data = await messageApi.translate(toMessageCode(code.value), targetLanguage.value, store.token)
     result.value = Array.isArray(data) ? data[0] || null : data
   } catch (e) {
+    store.handleUnauthorized(e)
+    translationForbidden.value = e.code === 'FORBIDDEN'
     error.value = e.message
   } finally {
     loading.value = false
@@ -45,7 +48,7 @@ async function translate() {
       <div class="grid">
         <label>
           Código del mensaje
-          <input v-model="code" placeholder="REL_TO_DOC_006" @keyup.enter="translate" />
+          <input v-model="code" placeholder="MSG_WELCOME" @keyup.enter="translate" />
         </label>
         <label>
           Idioma destino
@@ -55,7 +58,7 @@ async function translate() {
         </label>
       </div>
 
-      <button :disabled="!code.trim() || loading" @click="translate">
+      <button :disabled="!code.trim() || loading || translationForbidden" @click="translate">
         {{ loading ? 'Traduciendo…' : 'Traducir' }}
       </button>
 
@@ -70,7 +73,6 @@ async function translate() {
             <tr><th>Contenido</th><td>{{ result.originalContent }}</td></tr>
             <tr><th>Tipo</th><td>{{ result.type }}</td></tr>
             <tr><th>Categoría</th><td>{{ result.category }}</td></tr>
-            <tr><th>Aplicación</th><td>{{ result.application }}</td></tr>
             <tr><th>Funcionalidad</th><td>{{ result.functionality }}</td></tr>
           </tbody>
         </table>

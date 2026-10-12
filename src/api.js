@@ -1,69 +1,135 @@
 const BASE = '/messageucolab'
 
-async function request(path, { method = 'GET', body, token } = {}) {
+const GENERIC_SERVER_ERROR = 'Ocurri? un error inesperado. Intenta de nuevo m?s tarde.'
+
+class ApiError extends Error {
+  constructor(message, { status, code } = {}) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.code = code
+  }
+}
+
+async function request(path, { method = 'GET', body, token, base = BASE, includeEnvelope = false } = {}) {
   const headers = { Accept: 'application/json' }
   if (body) headers['Content-Type'] = 'application/json'
-  if (token) headers['Token'] = token
+  if (token) {
+    // Backend nuevo (modo simulado): lee Authorization: Bearer <token>.
+    // Backend legacy: lee el header Token. Se env?an ambos para cubrir los dos.
+    headers['Authorization'] = `Bearer ${token}`
+    headers['Token'] = token
+  }
 
-  const res = await fetch(BASE + path, {
+  const res = await fetch(base + path, {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined
   })
 
+  const text = await res.text()
   let json = null
-  try {
-    json = await res.json()
-  } catch (_) {
-    // la respuesta no es JSON
+  if (text) {
+    let decoded = text
+    // Reparar tildes si llegan mal (?, ?, ?, ?, ?, ?)
+    if (decoded.includes('\uFFFD') || /[????????????]/.test(decoded) === false && /[AEIOUNaeioun]/.test(decoded.replace(/[\w\s.,:;()\[\]{}"'!?-]/g,'')) === false) {
+      // intento suave: no forzamos latin1 si ya hay acentos
+    }
+    // Forzar decodificaci?n correcta desde bytes si viene mal
+    try {
+      const bytes = new Uint8Array([...decoded].map(c => c.charCodeAt(0)))
+      // mejor: intentar detectar
+    } catch {}
+    // Simple fix: si hay �, intentar interpretar como ISO-8859-1
+    if (decoded.includes('�')) {
+      try {
+        const buf = new TextEncoder().encode(decoded)
+        // no exacto; alternativa: usar Blob
+      } catch {}
+      try {
+        decoded = new TextDecoder('iso-8859-1').decode(Buffer.from(decoded, 'binary'))
+      } catch {}
+    }
+    try {
+      json = JSON.parse(decoded)
+    } catch {
+      if (res.ok) {
+        throw new ApiError('La respuesta del servidor no tiene un formato v?lido.', {
+          status: res.status
+        })
+      }
+    }
   }
 
-  // SIEMPRE revisar errors, no confiar solo en el HTTP status
-  if (json && Array.isArray(json.errors) && json.errors.length > 0) {
-    throw new Error(json.errors.join(' · '))
+  const firstError = Array.isArray(json?.errors) ? json.errors[0] : null
+  if (firstError) {
+    throw new ApiError(
+      res.status === 500
+        ? firstError.message || GENERIC_SERVER_ERROR
+        : firstError.message || res.statusText,
+      { status: res.status, code: firstError.code }
+    )
   }
   if (!res.ok) {
-    const msg = json ? JSON.stringify(json) : res.statusText
-    throw new Error(`HTTP ${res.status}: ${msg}`)
+    throw new ApiError(
+      res.status === 500 ? GENERIC_SERVER_ERROR : res.statusText || `HTTP ${res.status}`,
+      { status: res.status }
+    )
   }
 
-  return json ? json.data : null
+  return includeEnvelope ? json : json?.data ?? null
+}
+
+// Normaliza el c?digo de mensaje: el backend solo acepta el sufijo
+// (m?x. 10, patr?n ^[A-Za-z0-9 ]+$) y lo guarda como MSG_<sufijo>.
+export function toMessageCode(raw) {
+  const value = String(raw || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, ' ')
+    .replace(/^MSG_+/, '')
+  return value ? `MSG_${value}` : ''
 }
 
 export const catalogApi = {
-  applications: () => request('/v1/catalog/applications'),
-  environments: (appId) => request(`/v1/catalog/applications/${appId}/environments`),
-  functionalities: (appId) => request(`/v1/catalog/applications/${appId}/functionalities`),
-  messageTypes: () => request('/v1/catalog/message-types'),
-  messageCategories: () => request('/v1/catalog/message-categories'),
-  messageStates: () => request('/v1/catalog/message-states'),
-  messageEnvironmentStates: () => request('/v1/catalog/message-environment-states')
+  applications: (token) => request('/v1/catalog/applications', { token }),
+  environments: (appId, token) => request(`/v1/catalog/applications/${appId}/environments`, { token }),
+  functionalities: (appId, token) => request(`/v1/catalog/applications/${appId}/functionalities`, { token }),
+  messageTypes: (token) => request('/v1/catalog/message-types', { token }),
+  messageCategories: (token) => request('/v1/catalog/message-categories', { token }),
+  messageStates: (token) => request('/v1/catalog/message-states', { token }),
+  messageEnvironmentStates: (token) => request('/v1/catalog/message-environment-states', { token })
+}
+
+export const meApi = {
+  contexts: (token) => request('/v1/me/contexts', { token }),
+  activeContext: (token) => request('/v1/me/context', { token }),
+  selectContext: (body, token) => request('/v1/me/context', { method: 'PUT', body, token })
 }
 
 export const messageApi = {
-  generateToken: (applicationId, body) =>
-    request(`/v1/application/${applicationId}/token`, { method: 'POST', body }),
-
   create: (payload, token) =>
-    request('/v1/application/message', { method: 'POST', body: payload, token }),
+    request('/v1/messages', { method: 'POST', body: payload, token }),
 
   createApplication: (payload, token) =>
     request('/v1/application', { method: 'POST', body: payload, token }),
 
-  createEnvironment: (payload, token) =>
-    request('/v1/application/environment', { method: 'POST', body: payload, token }),
-
   createFunctionality: (payload, token) =>
     request('/v1/application/functionality', { method: 'POST', body: payload, token }),
 
-  list: (page, size, environmentId) => {
-    const env = environmentId ? `&environmentId=${encodeURIComponent(environmentId)}` : ''
-    return request(`/v1/application/messages?page=${page}&size=${size}&sort=asc&columnSort=code${env}`)
-  },
+  list: (page, size, token) =>
+    request(`/v1/messages?page=${page}&size=${size}&sort=ASC&columnSort=code`, {
+      token,
+      includeEnvelope: true
+    }),
 
   byCode: (code, token) =>
-    request(`/v1/application/messages/${encodeURIComponent(code)}`, { token }),
+    request(`/v1/messages?code=${encodeURIComponent(code)}`, { token }),
 
-  translate: (code, targetLanguage, token) =>
-    request(`/v1/application/messages/${encodeURIComponent(code)}/translation?sourceLanguage=auto&targetLanguage=${encodeURIComponent(targetLanguage)}`, { token })
+  translate: (code, targetLanguage, token, sourceLanguage = 'auto') =>
+    request(`/v1/messages/${encodeURIComponent(code)}/translations`, {
+      method: 'POST',
+      body: { sourceLanguage, targetLanguage },
+      token
+    })
 }

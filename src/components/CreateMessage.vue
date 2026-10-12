@@ -1,15 +1,14 @@
 <script setup>
-import { ref, reactive, watch } from 'vue'
+import { ref, reactive, watch, onMounted, computed } from 'vue'
 import { catalogApi, messageApi } from '../api'
 import { store } from '../store'
 
-const emit = defineEmits(['created'])
+const emit = defineEmits(['created', 'cancel'])
 
-const environments = ref([])
 const functionalities = ref([])
-
-const formError = ref('')
 const success = ref('')
+const formError = ref('')
+const createForbidden = ref(false)
 
 const form = reactive({
   code: '',
@@ -18,88 +17,94 @@ const form = reactive({
   typeId: '',
   categoryId: '',
   statusId: '',
-  messageEnvironmentStateId: '',
-  applicationId: '',
-  functionalityId: '',
-  environmentId: ''
+  functionalityId: ''
 })
 
-// Cuando los catálogos del store llegan, seleccionamos valores por defecto
-// solo si el usuario aún no eligió uno.
+const context = computed(() => store.activeContext || {})
+
+const titleCount = computed(() => form.title.length)
+const contentCount = computed(() => form.content.length)
+const codeCount = computed(() => form.code.trim().length)
+
+const validTitle = computed(() => form.title.length >= 10 && form.title.length <= 50)
+const validContent = computed(() => form.content.length >= 10 && form.content.length <= 100)
+const validCode = computed(() => {
+  const code = form.code.trim()
+  return code.length > 0 && code.length <= 10 && /^[A-Za-z0-9 ]+$/.test(code)
+})
+
 function setCatalogDefaults() {
   if (store.types.length && !form.typeId) form.typeId = store.types[0].value
   if (store.categories.length && !form.categoryId) form.categoryId = store.categories[0].value
   if (store.states.length && !form.statusId) form.statusId = store.states[0].value
-  if (store.envStates.length && !form.messageEnvironmentStateId)
-    form.messageEnvironmentStateId = store.envStates[0].value
 }
 
 watch(
   [
     () => store.types.length,
     () => store.categories.length,
-    () => store.states.length,
-    () => store.envStates.length
+    () => store.states.length
   ],
   setCatalogDefaults,
   { immediate: true }
 )
 
-async function onAppChange() {
-  form.functionalityId = ''
-  form.environmentId = ''
-  environments.value = []
+async function loadFunctionalities() {
   functionalities.value = []
-  formError.value = ''
-  if (!form.applicationId) return
+  form.functionalityId = ''
+  const appId = context.value.applicationId || context.value.application?.id
+  if (!appId) return
   try {
-    const [envs, funcs] = await Promise.all([
-      catalogApi.environments(form.applicationId),
-      catalogApi.functionalities(form.applicationId)
-    ])
-    environments.value = envs
-    functionalities.value = funcs
+    functionalities.value = await catalogApi.functionalities(appId, store.token)
   } catch (e) {
-    formError.value = 'Error cargando entorno/funcionalidad: ' + e.message
+    store.handleUnauthorized(e)
+    formError.value = e.message
   }
 }
 
+onMounted(loadFunctionalities)
+
 async function createMessage() {
-  formError.value = ''
   success.value = ''
-
-  if (!form.code) return (formError.value = 'El código no puede estar vacío.')
-  if (form.title.length < 10 || form.title.length > 50)
+  formError.value = ''
+  if (!validCode.value)
+    return (formError.value =
+      'El código solo acepta el sufijo: máx. 10 caracteres, sin MSG_ ni guiones (ej. WELCOME → MSG_WELCOME).')
+  if (!validTitle.value)
     return (formError.value = 'El título debe tener entre 10 y 50 caracteres.')
-  if (form.content.length < 10 || form.content.length > 100)
+  if (!validContent.value)
     return (formError.value = 'El contenido debe tener entre 10 y 100 caracteres.')
-  if (!form.applicationId || !form.environmentId || !form.functionalityId)
-    return (formError.value = 'Selecciona aplicación, entorno y funcionalidad.')
-
-  const app = store.applications.find((a) => a.id === form.applicationId)
+  if (!form.functionalityId)
+    return (formError.value = 'Selecciona una funcionalidad.')
+  if (!form.typeId || !form.categoryId || !form.statusId)
+    return (formError.value = 'Tipo, categoría y estado son obligatorios.')
 
   const payload = {
-    code: form.code,
+    code: form.code.trim(),
     title: form.title,
     content: form.content,
     typeId: form.typeId,
     categoryId: form.categoryId,
     statusId: form.statusId,
-    applicationId: form.applicationId,
-    application: app ? app.name : '',
-    functionalityId: form.functionalityId,
-    environmentId: form.environmentId,
-    messageEnvironmentStateId: form.messageEnvironmentStateId
+    functionalityId: form.functionalityId
   }
 
   try {
     const data = await messageApi.create(payload, store.token)
-    success.value = data && data[0] ? data[0] : 'Mensaje creado'
+    // Consistencia eventual: no decimos "disponible", solo que fue recibido.
+    alert('Mensaje creado exitosamente')
+    success.value = 'Mensaje creado exitosamente'
     form.code = ''
     form.title = ''
     form.content = ''
-    emit('created')
+    emit('created', data)
+    setTimeout(() => {
+      success.value = ''
+      emit('cancel')
+    }, 900)
   } catch (e) {
+    store.handleUnauthorized(e)
+    createForbidden.value = e.code === 'FORBIDDEN'
     formError.value = e.message
   }
 }
@@ -109,77 +114,102 @@ async function createMessage() {
   <section class="card">
     <h2>Crear mensaje</h2>
 
-    <p v-if="!store.token" class="warn">
-      No hay token. Ve a la pestaña "Crear token" y genera uno primero.
-    </p>
+    <h3 class="sub">Contexto</h3>
+    <dl class="ctx-summary">
+      <div><dt>Organización</dt><dd>{{ context.organization?.name || context.organizationName || '—' }}</dd></div>
+      <div><dt>Aplicación</dt><dd>{{ context.application?.name || context.applicationName || '—' }}</dd></div>
+      <div><dt>Ambiente</dt><dd>{{ context.environment?.name || context.environmentName || '—' }}</dd></div>
+    </dl>
 
+    <h3 class="sub">Identificación</h3>
     <div class="grid">
       <label>
-        Aplicación
-        <select v-model="form.applicationId" @change="onAppChange">
-          <option value="">Seleccionar…</option>
-          <option v-for="a in store.applications" :key="a.id" :value="a.id">{{ a.name }}</option>
-        </select>
+        Código *
+        <input v-model="form.code" placeholder="WELCOME" />
+        <small :class="validCode ? 'ok' : 'warn'">
+          {{ codeCount }}/10 · sin MSG_ ni guiones → se guarda como MSG_{{ form.code.trim().toUpperCase() }}
+        </small>
       </label>
       <label>
-        Entorno
-        <select v-model="form.environmentId" :disabled="!environments.length">
-          <option value="">Seleccionar…</option>
-          <option v-for="e in environments" :key="e.id" :value="e.id">{{ e.name }}</option>
-        </select>
-      </label>
-      <label>
-        Funcionalidad
+        Funcionalidad *
         <select v-model="form.functionalityId" :disabled="!functionalities.length">
           <option value="">Seleccionar…</option>
           <option v-for="f in functionalities" :key="f.id" :value="f.id">{{ f.name }}</option>
         </select>
       </label>
-    </div>
-
-    <div class="grid">
       <label>
-        Código
-        <input v-model="form.code" placeholder="REL_TO_DOC_006" />
-      </label>
-      <label>
-        Tipo
+        Tipo *
         <select v-model="form.typeId">
           <option v-for="t in store.types" :key="t.value" :value="t.value">{{ t.name }}</option>
         </select>
       </label>
       <label>
-        Categoría
+        Categoría *
         <select v-model="form.categoryId">
           <option v-for="c in store.categories" :key="c.value" :value="c.value">{{ c.name }}</option>
         </select>
       </label>
       <label>
-        Estado
+        Estado *
         <select v-model="form.statusId">
           <option v-for="s in store.states" :key="s.value" :value="s.value">{{ s.name }}</option>
         </select>
       </label>
+    </div>
+
+    <h3 class="sub">Contenido</h3>
+    <div class="grid">
       <label>
-        Estado de entorno
-        <select v-model="form.messageEnvironmentStateId">
-          <option v-for="s in store.envStates" :key="s.value" :value="s.value">{{ s.name }}</option>
-        </select>
-      </label>
-      <label>
-        Título (10 a 50 caracteres)
-        <input v-model="form.title" />
+        Título * (10 a 50)
+        <input v-model="form.title" placeholder="Credenciales incorrectas" />
+        <small :class="validTitle ? 'ok' : 'warn'">{{ titleCount }}/50 caracteres</small>
       </label>
       <label class="full">
-        Contenido (10 a 100 caracteres)
-        <textarea v-model="form.content" rows="3"></textarea>
+        Contenido * (10 a 100)
+        <textarea v-model="form.content" rows="3" placeholder="El usuario o la contraseña ingresados no son correctos."></textarea>
+        <small :class="validContent ? 'ok' : 'warn'">{{ contentCount }}/100 caracteres</small>
       </label>
     </div>
 
     <p v-if="formError" class="err">{{ formError }}</p>
-    <p v-if="success" class="ok">{{ success }}</p>
+    <p v-if="success" class="ok" style="font-weight:700;font-size:16px">{{ success }}</p>
 
-    <button :disabled="!store.token" @click="createMessage">Crear mensaje</button>
-    <p v-if="!store.token" class="warn">Genera un token antes de crear.</p>
+    <div class="toolbar">
+      <button class="ghost" @click="emit('cancel')">Cancelar</button>
+      <button :disabled="createForbidden" @click="createMessage">Crear mensaje</button>
+    </div>
   </section>
 </template>
+
+<style scoped>
+.ctx-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+
+.ctx-summary div dt {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.ctx-summary div dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+button.ghost {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+input.is-invalid,
+textarea.is-invalid {
+  border-color: #b91c1c;
+}
+</style>

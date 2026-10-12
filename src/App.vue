@@ -1,9 +1,9 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
-import { store } from './store'
+import { ref, computed, onMounted } from 'vue'
+import { store, contextLabel } from './store'
+import ContextSelect from './components/ContextSelect.vue'
 import CreateCatalog from './components/CreateCatalog.vue'
 import CreateMessage from './components/CreateMessage.vue'
-import CreateToken from './components/CreateToken.vue'
 import ListMessages from './components/ListMessages.vue'
 import TranslateMessage from './components/TranslateMessage.vue'
 import ViewMessage from './components/ViewMessage.vue'
@@ -11,66 +11,130 @@ import ViewMessage from './components/ViewMessage.vue'
 const tab = ref('list')
 const viewCode = ref('')
 
+const activeContext = computed(() => store.activeContext)
+
 function goView(code) {
   viewCode.value = code
   tab.value = 'view'
 }
 
-function clearToken() {
-  store.setToken('')
+function goCreate() {
+  tab.value = 'create'
 }
 
-// Cuando se crea un mensaje o token, refrescamos los datos al instante
-function onMessageCreated() {
-  store.loadMessages()
-  store.loadCatalogs()
+function goList() {
+  tab.value = 'list'
 }
 
-function onTokenCreated() {
-  store.loadCatalogs()
+async function onChangeContext() {
+  store.activeContext = null
+  store.contexts = []
+  localStorage.removeItem('activeContext')
+  store.messages = []
+  store.totalMessages = 0
+  store.totalPages = 0
+  store.messagesPage = 1
+  tab.value = 'list'
+  await store.loadContexts()
 }
 
-function onCatalogCreated() {
-  store.loadCatalogs()
+function onContextSelected() {
+  tab.value = 'list'
 }
 
-// Polling: re-consulta catálogos y mensajes para reflejar cambios externos
-// (ej. eliminación de un item en la base de datos) sin recargar el navegador.
-let pollId = null
+async function onMessageCreated() {
+  await store.loadMessages(true, 1)
+}
+
+async function onCatalogCreated(kind) {
+  const updates = [store.loadCatalogs()]
+  if (kind === 'application') updates.push(store.loadContexts())
+  await Promise.all(updates)
+}
 
 onMounted(() => {
-  store.refresh()
-  pollId = setInterval(() => store.refresh(), 2000)
-})
-
-onUnmounted(() => {
-  clearInterval(pollId)
+  if (store.activeContext) {
+    Promise.all([store.loadCatalogs(), store.loadMessages(false, 1)])
+  } else {
+    store.loadContexts()
+  }
 })
 </script>
 
 <template>
-  <header class="bar">
-    <h1>MessageUcoLab</h1>
-    <span v-if="store.token" class="badge ok">Token activo</span>
-    <span v-else class="badge warn">Sin token</span>
-    <button v-if="store.token" class="link" @click="clearToken">Quitar token</button>
-  </header>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand-lockup">
+        <span class="brand-mark" aria-hidden="true">M</span>
+        <div>
+          <strong>Message<span>UcoLab</span></strong>
+          <small>GESTIÓN DE MENSAJES</small>
+        </div>
+      </div>
 
-  <nav class="tabs">
-    <button :class="{ active: tab === 'list' }" @click="tab = 'list'">Mensajes</button>
-    <button :class="{ active: tab === 'create' }" @click="tab = 'create'">Crear mensaje</button>
-    <button :class="{ active: tab === 'token' }" @click="tab = 'token'">Crear token</button>
-    <button :class="{ active: tab === 'catalog' }" @click="tab = 'catalog'">Catálogos</button>
-    <button :class="{ active: tab === 'translate' }" @click="tab = 'translate'">Traducir</button>
-    <button :class="{ active: tab === 'view' }" @click="tab = 'view'">Consultar</button>
-  </nav>
+      <p class="sidebar-label">ESPACIO DE TRABAJO</p>
+      <nav v-if="store.token && activeContext" class="side-nav" aria-label="Navegación principal">
+        <button :class="{ active: tab === 'list' }" @click="tab = 'list'">
+          <span class="nav-icon" aria-hidden="true">▤</span>Mensajes
+        </button>
+        <button :class="{ active: tab === 'create' }" @click="tab = 'create'">
+          <span class="nav-icon" aria-hidden="true">＋</span>Crear mensaje
+        </button>
+        <button :class="{ active: tab === 'view' }" @click="tab = 'view'">
+          <span class="nav-icon" aria-hidden="true">⌕</span>Consultar
+        </button>
+        <button :class="{ active: tab === 'translate' }" @click="tab = 'translate'">
+          <span class="nav-icon" aria-hidden="true">⇄</span>Traducir
+        </button>
+        <button :class="{ active: tab === 'catalog' }" @click="tab = 'catalog'">
+          <span class="nav-icon" aria-hidden="true">⚙</span>Configuración
+        </button>
+      </nav>
 
-  <main>
-    <ListMessages v-if="tab === 'list'" @view="goView" />
-    <CreateMessage v-else-if="tab === 'create'" @created="onMessageCreated" />
-    <CreateToken v-else-if="tab === 'token'" @created="onTokenCreated" />
-    <CreateCatalog v-else-if="tab === 'catalog'" @created="onCatalogCreated" />
-    <TranslateMessage v-else-if="tab === 'translate'" />
-    <ViewMessage v-else :code="viewCode" />
-  </main>
+      <div class="sidebar-footer">
+        <span class="sidebar-status" :class="{ online: store.token }"></span>
+        <div>
+          <strong>{{ store.token ? 'Sesión activa' : 'Sin autenticar' }}</strong>
+          <small>{{ activeContext ? 'Contexto seleccionado' : 'MessageUcoLab' }}</small>
+        </div>
+      </div>
+    </aside>
+
+    <div class="app-main">
+      <header class="bar">
+        <div class="bar-caption">
+          <span>PLATAFORMA</span>
+          <strong>{{ activeContext ? 'Panel de administración' : 'Gestión de mensajes' }}</strong>
+        </div>
+        <div class="bar-actions">
+          <div v-if="store.token && activeContext" class="ctx-pill" aria-label="Contexto activo">
+            <span class="context-dot" aria-hidden="true"></span>
+            {{ contextLabel(activeContext) }}
+          </div>
+          <button v-if="store.token && activeContext" class="context-action" @click="onChangeContext">
+            Cambiar contexto
+          </button>
+          <span v-if="store.token" class="badge ok">Sesión activa</span>
+          <span v-else class="badge warn">Sin autenticar</span>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <section v-if="!activeContext" class="auth-stage">
+          <ContextSelect @selected="onContextSelected" />
+        </section>
+        <template v-else>
+          <ListMessages v-if="tab === 'list'" @view="goView" @create="goCreate" />
+          <CreateMessage v-else-if="tab === 'create'" @created="onMessageCreated" @cancel="goList" />
+          <ViewMessage v-else-if="tab === 'view'" :code="viewCode" />
+          <TranslateMessage v-else-if="tab === 'translate'" />
+          <CreateCatalog v-else-if="tab === 'catalog'" @created="onCatalogCreated" />
+        </template>
+      </main>
+    </div>
+  </div>
 </template>
+
+<style scoped>
+.ctx-pill { width: min(360px, 45%); }
+</style>

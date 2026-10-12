@@ -5,8 +5,9 @@ export default defineConfig({
   plugins: [vue()],
   server: {
     proxy: {
+      // Backend contract-first (contextos, catálogos, mensajes), puerto 8085
       '/messageucolab': {
-        target: 'http://52.251.53.20:8000',
+        target: 'http://localhost:8085',
         changeOrigin: true
       }
     }
