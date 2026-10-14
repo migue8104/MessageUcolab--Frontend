@@ -1,5 +1,5 @@
 import { reactive } from 'vue'
-import { catalogApi, messageApi, meApi } from './api'
+import { catalogApi, messageApi, meApi, toMessageCode } from './api'
 
 // Los catálogos ya devuelven ids UUID; se usan esos valores para enviarlos
 // tal cual en la creación de mensajes. Fallback al nombre en minúsculas si no hay id.
@@ -104,8 +104,12 @@ export const store = reactive({
   totalPages: 1,
   messagesPage: 1,
   messagesSize: 20,
+  messageSearch: '',
   messagesLoading: false,
   messagesError: '',
+  messageRefreshTimer: null,
+  messageRefreshInFlight: false,
+  messageRefreshPending: null,
 
   async loadContexts(silent = false) {
     if (!this.token) return
@@ -146,6 +150,7 @@ export const store = reactive({
       this.totalMessages = 0
       this.totalPages = 0
       this.messagesPage = 1
+      this.messageSearch = ''
       await Promise.all([this.loadMessages(false, 1), this.loadCatalogs()])
     } catch (e) {
       this.handleUnauthorized(e)
@@ -200,6 +205,61 @@ export const store = reactive({
     }
   },
 
+  scheduleMessageRefresh(event = null) {
+    this.messageRefreshPending = event
+    if (this.messageRefreshTimer) clearTimeout(this.messageRefreshTimer)
+    this.messageRefreshTimer = setTimeout(() => {
+      this.messageRefreshTimer = null
+      const pendingEvent = this.messageRefreshPending
+      this.messageRefreshPending = null
+      this.refreshMessagesFromEvent(pendingEvent)
+    }, 150)
+  },
+
+  async refreshMessagesFromEvent(event = null) {
+    if (this.messageRefreshInFlight) {
+      this.messageRefreshPending = event
+      return
+    }
+    this.messageRefreshInFlight = true
+    try {
+      const eventCode = toMessageCode(event?.messageCode)
+      if (this.messageSearch) {
+        const data = await messageApi.byCode(this.messageSearch, this.token)
+        const result = Array.isArray(data) ? data : data && data.data ? data.data : []
+        this.messages = result.slice(0, 1)
+        this.totalMessages = this.messages.length
+        this.totalPages = 1
+      } else if (eventCode) {
+        const data = await messageApi.byCode(eventCode, this.token)
+        const result = Array.isArray(data) ? data : data && data.data ? data.data : []
+        const message = result[0]
+        if (message) {
+          const currentIndex = this.messages.findIndex((item) => item.code === message.code)
+          if (currentIndex === -1) {
+            this.messages = [message, ...this.messages]
+            this.totalMessages += 1
+          } else {
+            this.messages.splice(currentIndex, 1, message)
+          }
+        }
+      }
+      if (!this.messageSearch) {
+        await this.loadMessages(true, this.messagesPage)
+      }
+    } catch (e) {
+      this.handleUnauthorized(e)
+      this.messagesError = e.message
+    } finally {
+      this.messageRefreshInFlight = false
+      if (this.messageRefreshPending) {
+        const pendingEvent = this.messageRefreshPending
+        this.messageRefreshPending = null
+        this.scheduleMessageRefresh(pendingEvent)
+      }
+    }
+  },
+
   async setMessagesPage(page) {
     if (page < 1 || page > this.totalPages || page === this.messagesPage) return
     this.messagesPage = page
@@ -209,6 +269,7 @@ export const store = reactive({
   async refresh(silent = true) {
     // Los contextos NO se consultan aquí: solo cambian al autenticar o
     // al entrar al selector, evitando peticiones extra al backend.
+    this.messageSearch = ''
     await Promise.all([this.loadCatalogs(silent), this.loadMessages(silent)])
   }
 })

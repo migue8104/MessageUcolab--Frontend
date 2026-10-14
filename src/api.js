@@ -18,7 +18,6 @@ async function request(path, { method = 'GET', body, token, base = BASE, include
     // Backend nuevo (modo simulado): lee Authorization: Bearer <token>.
     // Backend legacy: lee el header Token. Se env?an ambos para cubrir los dos.
     headers['Authorization'] = `Bearer ${token}`
-    headers['Token'] = token
   }
 
   const res = await fetch(base + path, {

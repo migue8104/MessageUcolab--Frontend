@@ -9,7 +9,11 @@ const search = ref('')
 
 async function searchCode() {
   const code = toMessageCode(search.value)
-  if (!code) return store.loadMessages(false, 1)
+  if (!code) {
+    store.messageSearch = ''
+    return store.loadMessages(false, 1)
+  }
+  store.messageSearch = code
   try {
     const data = await messageApi.byCode(code, store.token)
     store.messages = (Array.isArray(data) ? data : data && data.data ? data.data : []).slice(0, 1)

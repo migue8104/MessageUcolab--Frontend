@@ -8,7 +8,9 @@ export default defineConfig({
       // Backend contract-first (contextos, catálogos, mensajes), puerto 8085
       '/messageucolab': {
         target: 'http://localhost:8085',
-        changeOrigin: true
+        changeOrigin: true,
+        timeout: 0,
+        proxyTimeout: 0
       }
     }
   }

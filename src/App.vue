@@ -1,6 +1,7 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { store, contextLabel } from './store'
+import { createMessageEventService } from './messageEventService'
 import ContextSelect from './components/ContextSelect.vue'
 import CreateCatalog from './components/CreateCatalog.vue'
 import CreateMessage from './components/CreateMessage.vue'
@@ -12,6 +13,10 @@ const tab = ref('list')
 const viewCode = ref('')
 
 const activeContext = computed(() => store.activeContext)
+const sseConnectionKey = computed(
+  () => store.activeContext?.environmentId || store.activeContext?.environment?.id || ''
+)
+let messageEventService = null
 
 function goView(code) {
   viewCode.value = code
@@ -34,6 +39,7 @@ async function onChangeContext() {
   store.totalMessages = 0
   store.totalPages = 0
   store.messagesPage = 1
+  store.messageSearch = ''
   tab.value = 'list'
   await store.loadContexts()
 }
@@ -43,6 +49,7 @@ function onContextSelected() {
 }
 
 async function onMessageCreated() {
+  store.messageSearch = ''
   await store.loadMessages(true, 1)
 }
 
@@ -58,6 +65,38 @@ onMounted(() => {
   } else {
     store.loadContexts()
   }
+})
+
+function handleMessageEvent({ event, data }) {
+  const payload = typeof data === 'string' ? null : data
+  const eventType = event || payload?.type
+  if (!eventType || eventType === 'heartbeat' || eventType === 'connected') return
+  const currentEnvironmentId =
+    store.activeContext?.environmentId || store.activeContext?.environment?.id
+  if (payload?.environmentId && payload.environmentId !== currentEnvironmentId) return
+  store.refreshMessagesFromEvent(payload)
+}
+
+watch(
+  [() => store.token, sseConnectionKey],
+  ([token, environmentId]) => {
+    if (messageEventService) {
+      messageEventService.stop()
+      messageEventService = null
+    }
+    if (!token || !environmentId) return
+
+    messageEventService = createMessageEventService({
+      getToken: () => store.token,
+      onEvent: handleMessageEvent
+    })
+    messageEventService.start()
+  },
+  { immediate: true }
+)
+
+onBeforeUnmount(() => {
+  if (messageEventService) messageEventService.stop()
 })
 </script>
 
