@@ -1,7 +1,5 @@
 const BASE = '/messageucolab'
 
-const GENERIC_SERVER_ERROR = 'Ocurri? un error inesperado. Intenta de nuevo m?s tarde.'
-
 class ApiError extends Error {
   constructor(message, { status, code } = {}) {
     super(message)
@@ -15,8 +13,6 @@ async function request(path, { method = 'GET', body, token, base = BASE, include
   const headers = { Accept: 'application/json' }
   if (body) headers['Content-Type'] = 'application/json'
   if (token) {
-    // Backend nuevo (modo simulado): lee Authorization: Bearer <token>.
-    // Backend legacy: lee el header Token. Se env?an ambos para cubrir los dos.
     headers['Authorization'] = `Bearer ${token}`
   }
 
@@ -29,58 +25,31 @@ async function request(path, { method = 'GET', body, token, base = BASE, include
   const text = await res.text()
   let json = null
   if (text) {
-    let decoded = text
-    // Reparar tildes si llegan mal (?, ?, ?, ?, ?, ?)
-    if (decoded.includes('\uFFFD') || /[????????????]/.test(decoded) === false && /[AEIOUNaeioun]/.test(decoded.replace(/[\w\s.,:;()\[\]{}"'!?-]/g,'')) === false) {
-      // intento suave: no forzamos latin1 si ya hay acentos
-    }
-    // Forzar decodificaci?n correcta desde bytes si viene mal
     try {
-      const bytes = new Uint8Array([...decoded].map(c => c.charCodeAt(0)))
-      // mejor: intentar detectar
-    } catch {}
-    // Simple fix: si hay �, intentar interpretar como ISO-8859-1
-    if (decoded.includes('�')) {
-      try {
-        const buf = new TextEncoder().encode(decoded)
-        // no exacto; alternativa: usar Blob
-      } catch {}
-      try {
-        decoded = new TextDecoder('iso-8859-1').decode(Buffer.from(decoded, 'binary'))
-      } catch {}
-    }
-    try {
-      json = JSON.parse(decoded)
+      json = JSON.parse(text)
     } catch {
       if (res.ok) {
-        throw new ApiError('La respuesta del servidor no tiene un formato v?lido.', {
-          status: res.status
-        })
+        throw new ApiError('La respuesta del servidor no tiene un formato válido.', { status: res.status })
       }
     }
   }
 
   const firstError = Array.isArray(json?.errors) ? json.errors[0] : null
   if (firstError) {
-    throw new ApiError(
-      res.status === 500
-        ? firstError.message || GENERIC_SERVER_ERROR
-        : firstError.message || res.statusText,
-      { status: res.status, code: firstError.code }
-    )
+    throw new ApiError(firstError.message || res.statusText || `HTTP ${res.status}`, {
+      status: res.status,
+      code: firstError.code
+    })
   }
   if (!res.ok) {
-    throw new ApiError(
-      res.status === 500 ? GENERIC_SERVER_ERROR : res.statusText || `HTTP ${res.status}`,
-      { status: res.status }
-    )
+    throw new ApiError(res.statusText || `HTTP ${res.status}`, { status: res.status })
   }
 
   return includeEnvelope ? json : json?.data ?? null
 }
 
-// Normaliza el c?digo de mensaje: el backend solo acepta el sufijo
-// (m?x. 10, patr?n ^[A-Za-z0-9 ]+$) y lo guarda como MSG_<sufijo>.
+// Normaliza el código de mensaje: el backend solo acepta el sufijo
+// (máx. 10, patrón ^[A-Za-z0-9 ]+$) y lo guarda como MSG_<sufijo>.
 export function toMessageCode(raw) {
   const value = String(raw || '')
     .trim()
@@ -129,6 +98,19 @@ export const messageApi = {
     request(`/v1/messages/${encodeURIComponent(code)}/translations`, {
       method: 'POST',
       body: { sourceLanguage, targetLanguage },
+      token
+    }),
+
+  update: (code, payload, token) =>
+    request(`/v1/messages/${encodeURIComponent(code)}`, {
+      method: 'PUT',
+      body: payload,
+      token
+    }),
+
+  remove: (code, token) =>
+    request(`/v1/messages/${encodeURIComponent(code)}`, {
+      method: 'DELETE',
       token
     })
 }

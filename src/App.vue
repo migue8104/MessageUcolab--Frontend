@@ -5,12 +5,14 @@ import { createMessageEventService } from './messageEventService'
 import ContextSelect from './components/ContextSelect.vue'
 import CreateCatalog from './components/CreateCatalog.vue'
 import CreateMessage from './components/CreateMessage.vue'
+import EditMessage from './components/EditMessage.vue'
 import ListMessages from './components/ListMessages.vue'
 import TranslateMessage from './components/TranslateMessage.vue'
 import ViewMessage from './components/ViewMessage.vue'
 
 const tab = ref('list')
 const viewCode = ref('')
+const editMessage = ref(null)
 
 const activeContext = computed(() => store.activeContext)
 const sseConnectionKey = computed(
@@ -25,6 +27,11 @@ function goView(code) {
 
 function goCreate() {
   tab.value = 'create'
+}
+
+function goEdit(message) {
+  editMessage.value = message
+  tab.value = 'edit'
 }
 
 function goList() {
@@ -53,6 +60,12 @@ async function onMessageCreated() {
   await store.loadMessages(true, 1)
 }
 
+async function onMessageUpdated() {
+  store.messageSearch = ''
+  await new Promise((resolve) => setTimeout(resolve, 2500))
+  await store.loadMessages(true, store.messagesPage)
+}
+
 async function onCatalogCreated(kind) {
   const updates = [store.loadCatalogs()]
   if (kind === 'application') updates.push(store.loadContexts())
@@ -74,6 +87,11 @@ function handleMessageEvent({ event, data }) {
   const currentEnvironmentId =
     store.activeContext?.environmentId || store.activeContext?.environment?.id
   if (payload?.environmentId && payload.environmentId !== currentEnvironmentId) return
+  if (eventType === 'MessageDeleted') {
+    store.removeMessageByCode(payload?.messageCode)
+    store.loadMessages(true, store.messagesPage)
+    return
+  }
   store.refreshMessagesFromEvent(payload)
 }
 
@@ -163,8 +181,9 @@ onBeforeUnmount(() => {
           <ContextSelect @selected="onContextSelected" />
         </section>
         <template v-else>
-          <ListMessages v-if="tab === 'list'" @view="goView" @create="goCreate" />
+          <ListMessages v-if="tab === 'list'" @view="goView" @create="goCreate" @edit="goEdit" />
           <CreateMessage v-else-if="tab === 'create'" @created="onMessageCreated" @cancel="goList" />
+          <EditMessage v-else-if="tab === 'edit' && editMessage" :message="editMessage" @updated="onMessageUpdated" @cancel="goList" />
           <ViewMessage v-else-if="tab === 'view'" :code="viewCode" />
           <TranslateMessage v-else-if="tab === 'translate'" />
           <CreateCatalog v-else-if="tab === 'catalog'" @created="onCatalogCreated" />

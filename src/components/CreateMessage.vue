@@ -8,7 +8,6 @@ const emit = defineEmits(['created', 'cancel'])
 const functionalities = ref([])
 const success = ref('')
 const formError = ref('')
-const createForbidden = ref(false)
 
 const form = reactive({
   code: '',
@@ -25,13 +24,6 @@ const context = computed(() => store.activeContext || {})
 const titleCount = computed(() => form.title.length)
 const contentCount = computed(() => form.content.length)
 const codeCount = computed(() => form.code.trim().length)
-
-const validTitle = computed(() => form.title.length >= 10 && form.title.length <= 50)
-const validContent = computed(() => form.content.length >= 10 && form.content.length <= 100)
-const validCode = computed(() => {
-  const code = form.code.trim()
-  return code.length > 0 && code.length <= 10 && /^[A-Za-z0-9 ]+$/.test(code)
-})
 
 function setCatalogDefaults() {
   if (store.types.length && !form.typeId) form.typeId = store.types[0].value
@@ -67,17 +59,6 @@ onMounted(loadFunctionalities)
 async function createMessage() {
   success.value = ''
   formError.value = ''
-  if (!validCode.value)
-    return (formError.value =
-      'El código solo acepta el sufijo: máx. 10 caracteres, sin MSG_ ni guiones (ej. WELCOME → MSG_WELCOME).')
-  if (!validTitle.value)
-    return (formError.value = 'El título debe tener entre 10 y 50 caracteres.')
-  if (!validContent.value)
-    return (formError.value = 'El contenido debe tener entre 10 y 100 caracteres.')
-  if (!form.functionalityId)
-    return (formError.value = 'Selecciona una funcionalidad.')
-  if (!form.typeId || !form.categoryId || !form.statusId)
-    return (formError.value = 'Tipo, categoría y estado son obligatorios.')
 
   const payload = {
     code: form.code.trim(),
@@ -104,7 +85,6 @@ async function createMessage() {
     }, 900)
   } catch (e) {
     store.handleUnauthorized(e)
-    createForbidden.value = e.code === 'FORBIDDEN'
     formError.value = e.message
   }
 }
@@ -126,9 +106,7 @@ async function createMessage() {
       <label>
         Código *
         <input v-model="form.code" placeholder="WELCOME" />
-        <small :class="validCode ? 'ok' : 'warn'">
-          {{ codeCount }}/10 · sin MSG_ ni guiones → se guarda como MSG_{{ form.code.trim().toUpperCase() }}
-        </small>
+        <small>{{ codeCount }}/10 · sin MSG_ ni guiones → se guarda como MSG_{{ form.code.trim().toUpperCase() }}</small>
       </label>
       <label>
         Funcionalidad *
@@ -162,12 +140,12 @@ async function createMessage() {
       <label>
         Título * (10 a 50)
         <input v-model="form.title" placeholder="Credenciales incorrectas" />
-        <small :class="validTitle ? 'ok' : 'warn'">{{ titleCount }}/50 caracteres</small>
+        <small>{{ titleCount }}/50 caracteres</small>
       </label>
       <label class="full">
         Contenido * (10 a 100)
         <textarea v-model="form.content" rows="3" placeholder="El usuario o la contraseña ingresados no son correctos."></textarea>
-        <small :class="validContent ? 'ok' : 'warn'">{{ contentCount }}/100 caracteres</small>
+        <small>{{ contentCount }}/100 caracteres</small>
       </label>
     </div>
 
@@ -176,7 +154,7 @@ async function createMessage() {
 
     <div class="toolbar">
       <button class="ghost" @click="emit('cancel')">Cancelar</button>
-      <button :disabled="createForbidden" @click="createMessage">Crear mensaje</button>
+      <button @click="createMessage">Crear mensaje</button>
     </div>
   </section>
 </template>
