@@ -1,4 +1,10 @@
-const BASE = '/messageucolab'
+const API_ORIGIN = import.meta.env.VITE_API_URL?.replace(/\/+$/, '')
+const API_PATH = '/messageucolab'
+const BASE = import.meta.env.DEV
+  ? API_PATH
+  : API_ORIGIN
+    ? `${API_ORIGIN}${API_PATH}`
+    : API_PATH
 
 const GENERIC_SERVER_ERROR = 'Ocurri? un error inesperado. Intenta de nuevo m?s tarde.'
 
@@ -14,16 +20,12 @@ class ApiError extends Error {
 async function request(path, { method = 'GET', body, token, base = BASE, includeEnvelope = false } = {}) {
   const headers = { Accept: 'application/json' }
   if (body) headers['Content-Type'] = 'application/json'
-  if (token) {
-    // Backend nuevo (modo simulado): lee Authorization: Bearer <token>.
-    // Backend legacy: lee el header Token. Se env?an ambos para cubrir los dos.
-    headers['Authorization'] = `Bearer ${token}`
-  }
 
   const res = await fetch(base + path, {
     method,
     headers,
-    body: body ? JSON.stringify(body) : undefined
+    body: body ? JSON.stringify(body) : undefined,
+    credentials: 'include'
   })
 
   const text = await res.text()
@@ -118,7 +120,6 @@ export const messageApi = {
 
   list: (page, size, token) =>
     request(`/v1/messages?page=${page}&size=${size}&sort=ASC&columnSort=code`, {
-      token,
       includeEnvelope: true
     }),
 

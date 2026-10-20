@@ -8,9 +8,11 @@ import CreateMessage from './components/CreateMessage.vue'
 import ListMessages from './components/ListMessages.vue'
 import TranslateMessage from './components/TranslateMessage.vue'
 import ViewMessage from './components/ViewMessage.vue'
+import SecurityAdministrationPage from './components/security.vue'
 
 const tab = ref('list')
 const viewCode = ref('')
+const isSecurityRoute = window.location.pathname.replace(/\/+$/, '') === '/seguridad'
 
 const activeContext = computed(() => store.activeContext)
 const sseConnectionKey = computed(
@@ -60,6 +62,8 @@ async function onCatalogCreated(kind) {
 }
 
 onMounted(() => {
+  if (isSecurityRoute) return
+
   if (store.activeContext) {
     Promise.all([store.loadCatalogs(), store.loadMessages(false, 1)])
   } else {
@@ -78,17 +82,17 @@ function handleMessageEvent({ event, data }) {
 }
 
 watch(
-  [() => store.token, sseConnectionKey],
-  ([token, environmentId]) => {
+  sseConnectionKey,
+  (environmentId) => {
     if (messageEventService) {
       messageEventService.stop()
       messageEventService = null
     }
-    if (!token || !environmentId) return
+    if (isSecurityRoute || !store.isAuthenticated || !environmentId) return
 
     messageEventService = createMessageEventService({
-      getToken: () => store.token,
-      onEvent: handleMessageEvent
+      onEvent: handleMessageEvent,
+      onUnauthorized: () => store.handleUnauthorized({ status: 401 })
     })
     messageEventService.start()
   },
@@ -101,7 +105,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="app-shell">
+  <SecurityAdministrationPage v-if="isSecurityRoute" />
+  <div v-else class="app-shell">
     <aside class="sidebar">
       <div class="brand-lockup">
         <span class="brand-mark" aria-hidden="true">M</span>
@@ -112,7 +117,7 @@ onBeforeUnmount(() => {
       </div>
 
       <p class="sidebar-label">ESPACIO DE TRABAJO</p>
-      <nav v-if="store.token && activeContext" class="side-nav" aria-label="Navegación principal">
+      <nav v-if="store.isAuthenticated && activeContext" class="side-nav" aria-label="Navegación principal">
         <button :class="{ active: tab === 'list' }" @click="tab = 'list'">
           <span class="nav-icon" aria-hidden="true">▤</span>Mensajes
         </button>
@@ -131,9 +136,9 @@ onBeforeUnmount(() => {
       </nav>
 
       <div class="sidebar-footer">
-        <span class="sidebar-status" :class="{ online: store.token }"></span>
+        <span class="sidebar-status" :class="{ online: store.isAuthenticated }"></span>
         <div>
-          <strong>{{ store.token ? 'Sesión activa' : 'Sin autenticar' }}</strong>
+          <strong>{{ store.isAuthenticated ? 'Sesión activa' : 'Sin autenticar' }}</strong>
           <small>{{ activeContext ? 'Contexto seleccionado' : 'MessageUcoLab' }}</small>
         </div>
       </div>
@@ -146,14 +151,14 @@ onBeforeUnmount(() => {
           <strong>{{ activeContext ? 'Panel de administración' : 'Gestión de mensajes' }}</strong>
         </div>
         <div class="bar-actions">
-          <div v-if="store.token && activeContext" class="ctx-pill" aria-label="Contexto activo">
+          <div v-if="store.isAuthenticated && activeContext" class="ctx-pill" aria-label="Contexto activo">
             <span class="context-dot" aria-hidden="true"></span>
             {{ contextLabel(activeContext) }}
           </div>
-          <button v-if="store.token && activeContext" class="context-action" @click="onChangeContext">
+          <button v-if="store.isAuthenticated && activeContext" class="context-action" @click="onChangeContext">
             Cambiar contexto
           </button>
-          <span v-if="store.token" class="badge ok">Sesión activa</span>
+          <span v-if="store.isAuthenticated" class="badge ok">Sesión activa</span>
           <span v-else class="badge warn">Sin autenticar</span>
         </div>
       </header>

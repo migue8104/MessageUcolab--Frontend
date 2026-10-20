@@ -24,7 +24,7 @@ async function translate() {
   result.value = null
   loading.value = true
   try {
-    const data = await messageApi.translate(toMessageCode(code.value), targetLanguage.value, store.token)
+    const data = await messageApi.translate(toMessageCode(code.value), targetLanguage.value)
     result.value = Array.isArray(data) ? data[0] || null : data
   } catch (e) {
     store.handleUnauthorized(e)
@@ -40,8 +40,8 @@ async function translate() {
   <section class="card">
     <h2>Traducir mensaje</h2>
 
-    <p v-if="!store.token" class="warn">
-      No hay token. Ve a la pestaña "Crear token" y genera uno primero.
+    <p v-if="!store.isAuthenticated" class="warn">
+      Debes iniciar sesión para traducir mensajes.
     </p>
 
     <template v-else>

@@ -1,5 +1,8 @@
 import { reactive } from 'vue'
 import { catalogApi, messageApi, meApi, toMessageCode } from './api'
+import { requireSession } from './security/session'
+
+let sessionValidation = null
 
 // Los catálogos ya devuelven ids UUID; se usan esos valores para enviarlos
 // tal cual en la creación de mensajes. Fallback al nombre en minúsculas si no hay id.
@@ -33,32 +36,11 @@ const storedContext = (() => {
   }
 })()
 
-// El token se obtiene automáticamente (modo simulado del backend): el usuario
-// no genera tokens, solo elige el contexto de trabajo.
-export const AUTO_TOKEN = 'simulated-access-token'
-
-const initialToken = AUTO_TOKEN
-
 // Estado global compartido entre todos los componentes (reactivo).
 export const store = reactive({
-  token: initialToken,
-  setToken(value) {
-    const token = typeof value === 'string' ? value.trim() : ''
-    this.token = token
-    if (token) {
-      localStorage.setItem('token', token)
-      this.activeContext = null
-      this.contexts = []
-      localStorage.removeItem('activeContext')
-    } else {
-      localStorage.removeItem('token')
-      localStorage.removeItem('activeContext')
-      this.activeContext = null
-      this.contexts = []
-      return
-    }
-    // Al autenticar, los contextos se cargan una sola vez (no en el polling)
-    this.loadContexts(true)
+  isAuthenticated: false,
+  setSession() {
+    this.isAuthenticated = true
   },
 
   // Contexto activo del usuario (organización/aplicación/ambiente)
@@ -69,10 +51,28 @@ export const store = reactive({
 
   handleUnauthorized(error) {
     if (error.status !== 401 && error.code !== 'UNAUTHORIZED') return
-    this.activeContext = null
-    this.contexts = []
-    this.contextsError = error.message
-    localStorage.removeItem('activeContext')
+
+    if (!sessionValidation) {
+      const currentStore = this
+      sessionValidation = requireSession()
+        .then((session) => {
+          if (session) return
+
+          currentStore.isAuthenticated = false
+          currentStore.activeContext = null
+          currentStore.contexts = []
+          currentStore.contextsError = error.message
+          localStorage.removeItem('activeContext')
+        })
+        .catch((sessionError) => {
+          console.error('No fue posible revalidar la sesión.', sessionError)
+        })
+        .finally(() => {
+          sessionValidation = null
+        })
+    }
+
+    return sessionValidation
   },
 
   // Catálogos globales (compartidos entre pestañas)
@@ -112,11 +112,11 @@ export const store = reactive({
   messageRefreshPending: null,
 
   async loadContexts(silent = false) {
-    if (!this.token) return
+    if (!this.isAuthenticated) return
     if (!silent) this.contextsLoading = true
     this.contextsError = ''
     try {
-      const data = await meApi.contexts(this.token)
+      const data = await meApi.contexts()
       this.contexts = Array.isArray(data) ? data : data && data.data ? data.data : []
       // Si solo había un contexto y no hay uno activo, se selecciona automáticamente
       if (!this.activeContext && this.contexts.length === 1) {
@@ -139,8 +139,7 @@ export const store = reactive({
           organizationId: ctx.organization?.id || ctx.organizationId || '',
           applicationId: ctx.application?.id || ctx.applicationId || '',
           environmentId: ctx.environment?.id || ctx.environmentId || ''
-        },
-        this.token
+        }
       )
       // Mantiene los nombres para mostrarlos y agrega los ids devueltos por el backend
       const ids = Array.isArray(result) ? result[0] || {} : result || {}
@@ -164,10 +163,10 @@ export const store = reactive({
     this.catalogsError = ''
     try {
       const [apps, types, cats, sts] = await Promise.all([
-        catalogApi.applications(this.token),
-        catalogApi.messageTypes(this.token),
-        catalogApi.messageCategories(this.token),
-        catalogApi.messageStates(this.token)
+        catalogApi.applications(),
+        catalogApi.messageTypes(),
+        catalogApi.messageCategories(),
+        catalogApi.messageStates()
       ])
       this.applications = apps
       this.types = toOptions(types)
@@ -183,15 +182,15 @@ export const store = reactive({
 
   async loadMessages(silent = false, page = this.messagesPage) {
     this.messagesError = ''
-    // Sin token no tiene sentido consultar: el backend exige autenticación.
-    if (!this.token) {
+    // Sin sesiÃ³n confirmada no se consultan los recursos protegidos.
+    if (!this.isAuthenticated) {
       this.messages = []
       this.messagesLoading = false
       return
     }
     if (!silent) this.messagesLoading = true
     try {
-      const res = unwrapPage(await messageApi.list(page, this.messagesSize, this.token))
+      const res = unwrapPage(await messageApi.list(page, this.messagesSize))
       this.messages = res.data || []
       this.totalMessages = res.totalItems ?? 0
       this.totalPages = res.totalPages ?? 0
@@ -225,13 +224,13 @@ export const store = reactive({
     try {
       const eventCode = toMessageCode(event?.messageCode)
       if (this.messageSearch) {
-        const data = await messageApi.byCode(this.messageSearch, this.token)
+        const data = await messageApi.byCode(this.messageSearch)
         const result = Array.isArray(data) ? data : data && data.data ? data.data : []
         this.messages = result.slice(0, 1)
         this.totalMessages = this.messages.length
         this.totalPages = 1
       } else if (eventCode) {
-        const data = await messageApi.byCode(eventCode, this.token)
+        const data = await messageApi.byCode(eventCode)
         const result = Array.isArray(data) ? data : data && data.data ? data.data : []
         const message = result[0]
         if (message) {

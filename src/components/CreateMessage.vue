@@ -55,7 +55,7 @@ async function loadFunctionalities() {
   const appId = context.value.applicationId || context.value.application?.id
   if (!appId) return
   try {
-    functionalities.value = await catalogApi.functionalities(appId, store.token)
+    functionalities.value = await catalogApi.functionalities(appId)
   } catch (e) {
     store.handleUnauthorized(e)
     formError.value = e.message
@@ -90,7 +90,7 @@ async function createMessage() {
   }
 
   try {
-    const data = await messageApi.create(payload, store.token)
+    const data = await messageApi.create(payload)
     // Consistencia eventual: no decimos "disponible", solo que fue recibido.
     alert('Mensaje creado exitosamente')
     success.value = 'Mensaje creado exitosamente'

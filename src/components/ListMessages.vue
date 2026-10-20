@@ -15,7 +15,7 @@ async function searchCode() {
   }
   store.messageSearch = code
   try {
-    const data = await messageApi.byCode(code, store.token)
+    const data = await messageApi.byCode(code)
     store.messages = (Array.isArray(data) ? data : data && data.data ? data.data : []).slice(0, 1)
     store.totalMessages = store.messages.length
     store.totalPages = 1

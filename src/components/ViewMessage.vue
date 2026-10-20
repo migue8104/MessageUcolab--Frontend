@@ -27,9 +27,9 @@ async function load() {
   error.value = ''
   result.value = null
   const value = toMessageCode(inputCode.value)
-  if (!store.token || !value) return
+  if (!store.isAuthenticated || !value) return
   try {
-    const data = await messageApi.byCode(value, store.token)
+    const data = await messageApi.byCode(value)
     result.value = Array.isArray(data) ? data[0] || null : data
     if (!result.value) error.value = 'No se encontró ningún mensaje con ese código.'
   } catch (e) {
@@ -50,7 +50,7 @@ async function doTranslate() {
   translating.value = true
   translateError.value = ''
   try {
-    const data = await messageApi.translate(result.value.code, targetLanguage.value, store.token)
+    const data = await messageApi.translate(result.value.code, targetLanguage.value)
     translation.value = Array.isArray(data) ? data[0] || null : data
     if (!translation.value) translateError.value = 'La traducción no devolvió resultados.'
   } catch (e) {
