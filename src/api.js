@@ -1,3 +1,5 @@
+import { confirmProtectedAccess, recoverUnauthorized, sessionRecovery } from './security/session'
+
 const API_ORIGIN = import.meta.env.VITE_API_URL?.replace(/\/+$/, '')
 const API_PATH = '/messageucolab'
 const BASE = import.meta.env.DEV
@@ -17,7 +19,10 @@ class ApiError extends Error {
   }
 }
 
-async function request(path, { method = 'GET', body, token, base = BASE, includeEnvelope = false } = {}) {
+async function request(path, { method = 'GET', body, base = BASE, includeEnvelope = false } = {}) {
+  if (sessionRecovery.status !== 'idle') {
+    throw new ApiError(sessionRecovery.message, { status: 401, code: 'SESSION_RECOVERY_REQUIRED' })
+  }
   const headers = { Accept: 'application/json' }
   if (body) headers['Content-Type'] = 'application/json'
 
@@ -25,8 +30,15 @@ async function request(path, { method = 'GET', body, token, base = BASE, include
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
-    credentials: 'include'
+    credentials: 'include',
+    cache: 'no-store'
   })
+
+  if (res.status === 401) {
+    await recoverUnauthorized()
+    // La navegación recarga las lecturas; nunca se repite aquí una mutación.
+    throw new ApiError(sessionRecovery.message, { status: 401, code: 'SESSION_RECOVERY_REQUIRED' })
+  }
 
   const text = await res.text()
   let json = null
@@ -73,11 +85,12 @@ async function request(path, { method = 'GET', body, token, base = BASE, include
   }
   if (!res.ok) {
     throw new ApiError(
-      res.status === 500 ? GENERIC_SERVER_ERROR : res.statusText || `HTTP ${res.status}`,
-      { status: res.status }
+      res.status === 500 ? GENERIC_SERVER_ERROR : json?.detail || json?.message || res.statusText || `HTTP ${res.status}`,
+      { status: res.status, code: json?.code }
     )
   }
 
+  if (method === 'GET') confirmProtectedAccess()
   return includeEnvelope ? json : json?.data ?? null
 }
 
@@ -93,43 +106,46 @@ export function toMessageCode(raw) {
 }
 
 export const catalogApi = {
-  applications: (token) => request('/v1/catalog/applications', { token }),
-  environments: (appId, token) => request(`/v1/catalog/applications/${appId}/environments`, { token }),
-  functionalities: (appId, token) => request(`/v1/catalog/applications/${appId}/functionalities`, { token }),
-  messageTypes: (token) => request('/v1/catalog/message-types', { token }),
-  messageCategories: (token) => request('/v1/catalog/message-categories', { token }),
-  messageStates: (token) => request('/v1/catalog/message-states', { token }),
-  messageEnvironmentStates: (token) => request('/v1/catalog/message-environment-states', { token })
+  applications: () => request('/v1/catalog/applications'),
+  environments: (appId) => request(`/v1/catalog/applications/${appId}/environments`),
+  functionalities: (appId) => request(`/v1/catalog/applications/${appId}/functionalities`),
+  messageTypes: () => request('/v1/catalog/message-types'),
+  messageCategories: () => request('/v1/catalog/message-categories'),
+  messageStates: () => request('/v1/catalog/message-states'),
+  messageEnvironmentStates: () => request('/v1/catalog/message-environment-states')
+}
+
+export const workspaceApi = {
+  local: () => request('/v1/workspace/local')
 }
 
 export const meApi = {
-  contexts: (token) => request('/v1/me/contexts', { token }),
-  activeContext: (token) => request('/v1/me/context', { token }),
-  selectContext: (body, token) => request('/v1/me/context', { method: 'PUT', body, token })
+  contexts: () => request('/v1/me/contexts'),
+  activeContext: () => request('/v1/me/context'),
+  selectContext: (body) => request('/v1/me/context', { method: 'PUT', body })
 }
 
 export const messageApi = {
-  create: (payload, token) =>
-    request('/v1/messages', { method: 'POST', body: payload, token }),
+  create: (payload) =>
+    request('/v1/messages', { method: 'POST', body: payload }),
 
-  createApplication: (payload, token) =>
-    request('/v1/application', { method: 'POST', body: payload, token }),
+  createApplication: (payload) =>
+    request('/v1/application', { method: 'POST', body: payload }),
 
-  createFunctionality: (payload, token) =>
-    request('/v1/application/functionality', { method: 'POST', body: payload, token }),
+  createFunctionality: (payload) =>
+    request('/v1/application/functionality', { method: 'POST', body: payload }),
 
-  list: (page, size, token) =>
+  list: (page, size) =>
     request(`/v1/messages?page=${page}&size=${size}&sort=ASC&columnSort=code`, {
       includeEnvelope: true
     }),
 
-  byCode: (code, token) =>
-    request(`/v1/messages?code=${encodeURIComponent(code)}`, { token }),
+  byCode: (code) =>
+    request(`/v1/messages?code=${encodeURIComponent(code)}`),
 
-  translate: (code, targetLanguage, token, sourceLanguage = 'auto') =>
+  translate: (code, targetLanguage, sourceLanguage = 'auto') =>
     request(`/v1/messages/${encodeURIComponent(code)}/translations`, {
       method: 'POST',
-      body: { sourceLanguage, targetLanguage },
-      token
+      body: { sourceLanguage, targetLanguage }
     })
 }

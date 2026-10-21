@@ -1,6 +1,6 @@
 import { createApp } from 'vue'
 import App from './App.vue'
-import { requireSession } from './security/session'
+import { requireSession, sessionRecovery } from './security/session'
 import { store } from './store'
 import './style.css'
 
@@ -9,6 +9,8 @@ async function bootstrap() {
 
   if (session) {
     store.setSession()
+  }
+  if (session || sessionRecovery.status === 'blocked') {
     createApp(App).mount('#app')
   }
 }

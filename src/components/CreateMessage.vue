@@ -114,7 +114,7 @@ async function createMessage() {
   <section class="card">
     <h2>Crear mensaje</h2>
 
-    <h3 class="sub">Contexto</h3>
+    <h3 class="sub">{{ store.isLocalWorkspace ? 'Destino fijo de desarrollo' : 'Contexto' }}</h3>
     <dl class="ctx-summary">
       <div><dt>Organización</dt><dd>{{ context.organization?.name || context.organizationName || '—' }}</dd></div>
       <div><dt>Aplicación</dt><dd>{{ context.application?.name || context.applicationName || '—' }}</dd></div>

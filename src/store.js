@@ -1,8 +1,8 @@
 import { reactive } from 'vue'
-import { catalogApi, messageApi, meApi, toMessageCode } from './api'
-import { requireSession } from './security/session'
+import { catalogApi, messageApi, meApi, workspaceApi, toMessageCode } from './api'
+import { recoverUnauthorized } from './security/session'
 
-let sessionValidation = null
+const isLocalWorkspace = import.meta.env.DEV && import.meta.env.VITE_LOCAL_WORKSPACE === 'true'
 
 // Los catálogos ya devuelven ids UUID; se usan esos valores para enviarlos
 // tal cual en la creación de mensajes. Fallback al nombre en minúsculas si no hay id.
@@ -29,6 +29,7 @@ function unwrapPage(result) {
 }
 
 const storedContext = (() => {
+  if (isLocalWorkspace) return null
   try {
     return JSON.parse(localStorage.getItem('activeContext') || 'null')
   } catch {
@@ -39,11 +40,12 @@ const storedContext = (() => {
 // Estado global compartido entre todos los componentes (reactivo).
 export const store = reactive({
   isAuthenticated: false,
+  isLocalWorkspace,
   setSession() {
     this.isAuthenticated = true
   },
 
-  // Contexto activo del usuario (organización/aplicación/ambiente)
+  // Destino fijo local o contexto activo del usuario, según el modo.
   contexts: [],
   activeContext: storedContext,
   contextsLoading: false,
@@ -52,27 +54,16 @@ export const store = reactive({
   handleUnauthorized(error) {
     if (error.status !== 401 && error.code !== 'UNAUTHORIZED') return
 
-    if (!sessionValidation) {
-      const currentStore = this
-      sessionValidation = requireSession()
-        .then((session) => {
-          if (session) return
-
-          currentStore.isAuthenticated = false
-          currentStore.activeContext = null
-          currentStore.contexts = []
-          currentStore.contextsError = error.message
-          localStorage.removeItem('activeContext')
-        })
-        .catch((sessionError) => {
-          console.error('No fue posible revalidar la sesión.', sessionError)
-        })
-        .finally(() => {
-          sessionValidation = null
-        })
-    }
-
-    return sessionValidation
+    this.isAuthenticated = false
+    this.messages = []
+    this.applications = []
+    this.types = []
+    this.categories = []
+    this.states = []
+    if (this.messageRefreshTimer) clearTimeout(this.messageRefreshTimer)
+    this.messageRefreshTimer = null
+    this.messageRefreshPending = null
+    return recoverUnauthorized()
   },
 
   // Catálogos globales (compartidos entre pestañas)
@@ -111,8 +102,31 @@ export const store = reactive({
   messageRefreshInFlight: false,
   messageRefreshPending: null,
 
+  async loadLocalWorkspace() {
+    if (!this.isAuthenticated || !this.isLocalWorkspace) return
+    this.contextsLoading = true
+    this.contextsError = ''
+    try {
+      const data = await workspaceApi.local()
+      const workspace = Array.isArray(data) ? data[0] : null
+      if (!workspace?.organizationId || !workspace.applicationId || !workspace.environmentId) {
+        throw new Error('El backend no devolvió un espacio de trabajo local válido.')
+      }
+      this.activeContext = workspace
+      await Promise.all([this.loadCatalogs(), this.loadMessages(false, 1)])
+    } catch (e) {
+      this.handleUnauthorized(e)
+      this.contextsError = e.status === 404
+        ? 'Activa el perfil local-workspace en el backend para usar el destino fijo de desarrollo.'
+        : e.message
+    } finally {
+      this.contextsLoading = false
+    }
+  },
+
   async loadContexts(silent = false) {
     if (!this.isAuthenticated) return
+    if (this.isLocalWorkspace) return this.loadLocalWorkspace()
     if (!silent) this.contextsLoading = true
     this.contextsError = ''
     try {
@@ -131,6 +145,7 @@ export const store = reactive({
   },
 
   async selectContext(ctx) {
+    if (this.isLocalWorkspace) return
     this.contextsError = ''
     try {
       // El backend espera { organizationId, applicationId, environmentId }

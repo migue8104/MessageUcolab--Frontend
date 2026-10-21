@@ -2,6 +2,8 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { store, contextLabel } from './store'
 import { createMessageEventService } from './messageEventService'
+import { sessionRecovery } from './security/session'
+import SessionExpiredDialog from './components/SessionExpiredDialog.vue'
 import ContextSelect from './components/ContextSelect.vue'
 import CreateCatalog from './components/CreateCatalog.vue'
 import CreateMessage from './components/CreateMessage.vue'
@@ -15,6 +17,7 @@ const viewCode = ref('')
 const isSecurityRoute = window.location.pathname.replace(/\/+$/, '') === '/seguridad'
 
 const activeContext = computed(() => store.activeContext)
+const hasAccess = computed(() => store.isAuthenticated && sessionRecovery.status === 'idle')
 const sseConnectionKey = computed(
   () => store.activeContext?.environmentId || store.activeContext?.environment?.id || ''
 )
@@ -34,6 +37,7 @@ function goList() {
 }
 
 async function onChangeContext() {
+  if (store.isLocalWorkspace) return
   store.activeContext = null
   store.contexts = []
   localStorage.removeItem('activeContext')
@@ -57,12 +61,12 @@ async function onMessageCreated() {
 
 async function onCatalogCreated(kind) {
   const updates = [store.loadCatalogs()]
-  if (kind === 'application') updates.push(store.loadContexts())
+  if (kind === 'application' && !store.isLocalWorkspace) updates.push(store.loadContexts())
   await Promise.all(updates)
 }
 
 onMounted(() => {
-  if (isSecurityRoute) return
+  if (isSecurityRoute || !hasAccess.value) return
 
   if (store.activeContext) {
     Promise.all([store.loadCatalogs(), store.loadMessages(false, 1)])
@@ -82,13 +86,13 @@ function handleMessageEvent({ event, data }) {
 }
 
 watch(
-  sseConnectionKey,
-  (environmentId) => {
+  () => [sseConnectionKey.value, hasAccess.value],
+  ([environmentId, authenticated]) => {
     if (messageEventService) {
       messageEventService.stop()
       messageEventService = null
     }
-    if (isSecurityRoute || !store.isAuthenticated || !environmentId) return
+    if (isSecurityRoute || !authenticated || !environmentId) return
 
     messageEventService = createMessageEventService({
       onEvent: handleMessageEvent,
@@ -105,7 +109,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <SecurityAdministrationPage v-if="isSecurityRoute" />
+  <SecurityAdministrationPage v-if="isSecurityRoute && sessionRecovery.status === 'idle'" />
   <div v-else class="app-shell">
     <aside class="sidebar">
       <div class="brand-lockup">
@@ -117,7 +121,7 @@ onBeforeUnmount(() => {
       </div>
 
       <p class="sidebar-label">ESPACIO DE TRABAJO</p>
-      <nav v-if="store.isAuthenticated && activeContext" class="side-nav" aria-label="Navegación principal">
+      <nav v-if="hasAccess && activeContext" class="side-nav" aria-label="Navegación principal">
         <button :class="{ active: tab === 'list' }" @click="tab = 'list'">
           <span class="nav-icon" aria-hidden="true">▤</span>Mensajes
         </button>
@@ -136,10 +140,10 @@ onBeforeUnmount(() => {
       </nav>
 
       <div class="sidebar-footer">
-        <span class="sidebar-status" :class="{ online: store.isAuthenticated }"></span>
+        <span class="sidebar-status" :class="{ online: hasAccess }"></span>
         <div>
-          <strong>{{ store.isAuthenticated ? 'Sesión activa' : 'Sin autenticar' }}</strong>
-          <small>{{ activeContext ? 'Contexto seleccionado' : 'MessageUcoLab' }}</small>
+          <strong>{{ hasAccess ? 'Sesión activa' : 'Acceso pendiente' }}</strong>
+          <small>{{ store.isLocalWorkspace ? 'Destino local fijo' : activeContext ? 'Contexto seleccionado' : 'MessageUcoLab' }}</small>
         </div>
       </div>
     </aside>
@@ -151,21 +155,29 @@ onBeforeUnmount(() => {
           <strong>{{ activeContext ? 'Panel de administración' : 'Gestión de mensajes' }}</strong>
         </div>
         <div class="bar-actions">
-          <div v-if="store.isAuthenticated && activeContext" class="ctx-pill" aria-label="Contexto activo">
+          <div v-if="hasAccess && activeContext" class="ctx-pill" aria-label="Contexto activo">
             <span class="context-dot" aria-hidden="true"></span>
             {{ contextLabel(activeContext) }}
           </div>
-          <button v-if="store.isAuthenticated && activeContext" class="context-action" @click="onChangeContext">
+          <button v-if="hasAccess && activeContext && !store.isLocalWorkspace" class="context-action" @click="onChangeContext">
             Cambiar contexto
           </button>
-          <span v-if="store.isAuthenticated" class="badge ok">Sesión activa</span>
+          <span v-if="store.isLocalWorkspace" class="badge warn">Desarrollo local</span>
+          <span v-if="hasAccess" class="badge ok">Sesión activa</span>
           <span v-else class="badge warn">Sin autenticar</span>
         </div>
       </header>
 
-      <main class="workspace">
+      <main class="workspace" :inert="!hasAccess">
         <section v-if="!activeContext" class="auth-stage">
-          <ContextSelect @selected="onContextSelected" />
+          <div v-if="store.isLocalWorkspace" class="card">
+            <h2>Espacio de trabajo local</h2>
+            <p>La aplicación y el ambiente están fijados en la configuración del backend.</p>
+            <p v-if="store.contextsLoading" class="info">Cargando configuración local…</p>
+            <p v-if="store.contextsError" class="err" role="alert">{{ store.contextsError }}</p>
+            <button :disabled="store.contextsLoading" @click="store.loadLocalWorkspace()">Reintentar</button>
+          </div>
+          <ContextSelect v-else @selected="onContextSelected" />
         </section>
         <template v-else>
           <ListMessages v-if="tab === 'list'" @view="goView" @create="goCreate" />
@@ -177,6 +189,7 @@ onBeforeUnmount(() => {
       </main>
     </div>
   </div>
+  <SessionExpiredDialog />
 </template>
 
 <style scoped>
