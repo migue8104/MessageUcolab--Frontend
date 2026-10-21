@@ -113,6 +113,12 @@ watch(
           <th>Funcionalidad</th>
           <td>{{ result.functionality }}</td>
         </tr>
+        <tr>
+          <th>Ambientes</th>
+          <td>
+            <span v-for="env in result.environments || []" :key="env.id" class="badge ok env-badge">{{ env.name }}</span>
+          </td>
+        </tr>
       </tbody>
     </table>
 
@@ -163,6 +169,10 @@ watch(
 </template>
 
 <style scoped>
+.env-badge {
+  margin: 0 4px 4px 0;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;

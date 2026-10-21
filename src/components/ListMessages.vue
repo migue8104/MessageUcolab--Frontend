@@ -40,6 +40,12 @@ async function confirmDelete(message) {
 
 const search = ref('')
 
+// Vacío = todos los ambientes de la aplicación.
+const selectedEnvironments = computed({
+  get: () => store.environmentFilter,
+  set: (ids) => store.setEnvironmentFilter(ids)
+})
+
 async function searchCode() {
   const code = toMessageCode(search.value)
   if (!code) {
@@ -85,6 +91,15 @@ function prev() {
       <button :disabled="!search.trim() || store.messagesLoading" @click="searchCode">Buscar</button>
     </div>
 
+    <div v-if="store.environments.length" class="env-filter" role="group" aria-label="Filtrar por ambiente">
+      <span class="env-filter-label">Ambientes:</span>
+      <label v-for="env in store.environments" :key="env.id" class="env-option">
+        <input v-model="selectedEnvironments" type="checkbox" :value="env.id" />
+        {{ env.name }}
+      </label>
+      <small class="info">{{ store.environmentFilter.length ? '' : 'Mostrando todos' }}</small>
+    </div>
+
     <p v-if="store.messagesLoading" class="info">Cargando mensajes… (la consulta puede tardar 2-3 s)</p>
     <p v-if="store.messagesError" class="err">{{ store.messagesError }}</p>
 
@@ -97,6 +112,7 @@ function prev() {
           <th>Tipo</th>
           <th>Categoría</th>
           <th>Funcionalidad</th>
+          <th>Ambientes</th>
           <th></th>
         </tr>
       </thead>
@@ -108,6 +124,9 @@ function prev() {
           <td>{{ m.type }}</td>
           <td>{{ m.category }}</td>
           <td>{{ m.functionality }}</td>
+          <td>
+            <span v-for="env in m.environments || []" :key="env.id" class="badge ok env-badge">{{ env.name }}</span>
+          </td>
           <td class="actions-cell">
             <button class="icon-btn" title="Ver" @click="emit('view', m.code)">
               <i class="bi bi-eye"></i>
@@ -130,7 +149,7 @@ function prev() {
     </table>
     <p v-if="deleteError" class="err">{{ deleteError }}</p>
     <p v-else-if="!store.messagesLoading && !store.messagesError && !store.messages.length" class="info">
-      Sin mensajes registrados.
+      {{ store.environmentFilter.length ? 'Sin mensajes en los ambientes seleccionados.' : 'Sin mensajes registrados.' }}
     </p>
 
     <div v-if="!store.messagesLoading && (store.totalMessages > 0 || store.messages.length > 0)" class="toolbar pagination">
@@ -172,4 +191,31 @@ function prev() {
 .icon-btn.danger { color: #dc2626; }
 .icon-btn.danger:hover { background: #fef2f2; color: #b91c1c; }
 .icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.env-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: 0 0 12px;
+}
+
+.env-filter-label {
+  font-weight: 700;
+}
+
+.env-option {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.env-option input {
+  width: auto;
+}
+
+.env-badge {
+  margin: 0 4px 4px 0;
+}
 </style>

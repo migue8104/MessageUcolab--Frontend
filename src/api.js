@@ -8,6 +8,20 @@ const BASE = import.meta.env.DEV
     ? `${API_ORIGIN}${API_PATH}`
     : API_PATH
 
+// Aplicación elegida en modo sesión; el backend la valida contra la sesión.
+// El ambiente no es parte del contexto: es un dato de cada mensaje.
+const requestContext = { applicationId: '' }
+
+export function setRequestContext({ applicationId = '' } = {}) {
+  requestContext.applicationId = applicationId
+}
+
+export function contextHeaders() {
+  const headers = {}
+  if (requestContext.applicationId) headers['X-Application-Id'] = requestContext.applicationId
+  return headers
+}
+
 class ApiError extends Error {
   constructor(message, { status, code } = {}) {
     super(message)
@@ -21,7 +35,7 @@ async function request(path, { method = 'GET', body, base = BASE, includeEnvelop
   if (sessionRecovery.status !== 'idle') {
     throw new ApiError(sessionRecovery.message, { status: 401, code: 'SESSION_RECOVERY_REQUIRED' })
   }
-  const headers = { Accept: 'application/json' }
+  const headers = { Accept: 'application/json', ...contextHeaders() }
   if (body) headers['Content-Type'] = 'application/json'
 
   const res = await fetch(base + path, {
@@ -94,6 +108,10 @@ export const workspaceApi = {
   local: () => request('/v1/workspace/local')
 }
 
+export const sessionApi = {
+  applications: () => request('/v1/session/applications')
+}
+
 export const meApi = {
   contexts: () => request('/v1/me/contexts'),
   activeContext: () => request('/v1/me/context'),
@@ -110,10 +128,14 @@ export const messageApi = {
   createFunctionality: (payload) =>
     request('/v1/application/functionality', { method: 'POST', body: payload }),
 
-  list: (page, size) =>
-    request(`/v1/messages?page=${page}&size=${size}&sort=ASC&columnSort=code`, {
+  list: (page, size, environmentIds = []) => {
+    const environments = environmentIds.length
+      ? `&filterEnvironments=${encodeURIComponent(environmentIds.join(','))}`
+      : ''
+    return request(`/v1/messages?page=${page}&size=${size}&sort=ASC&columnSort=code${environments}`, {
       includeEnvelope: true
-    }),
+    })
+  },
 
   byCode: (code) =>
     request(`/v1/messages?code=${encodeURIComponent(code)}`),

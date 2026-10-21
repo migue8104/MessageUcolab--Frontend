@@ -22,8 +22,12 @@ async function mountSecurityAdministration() {
     throw new Error('Security UI no expone la API pública mount.')
   }
 
+  // El id evita depender de que el nombre sea único entre tenants.
+  const applicationId = import.meta.env.VITE_APPLICATION_ID?.trim()
   remote.mount(securityUiContainer, {
-    applicationName: import.meta.env.VITE_APPLICATION_NAME,
+    ...(applicationId
+      ? { applicationId }
+      : { applicationName: import.meta.env.VITE_APPLICATION_NAME }),
     apiBaseUrl: import.meta.env.VITE_PDP_URL,
     allowApplicationLifecycleManagement: false,
     theme: {

@@ -1,3 +1,5 @@
+import { contextHeaders } from './api'
+
 const EVENTS_PATH = '/messageucolab/v1/messages/events'
 const MAX_RECONNECT_DELAY = 30_000
 
@@ -91,7 +93,8 @@ export function createMessageEventService({ onEvent, onStatus, onUnauthorized } 
     try {
       const response = await fetch(EVENTS_PATH, {
         headers: {
-          Accept: 'text/event-stream'
+          Accept: 'text/event-stream',
+          ...contextHeaders()
         },
         credentials: 'include',
         cache: 'no-store',

@@ -1,8 +1,11 @@
 import { reactive } from 'vue'
-import { catalogApi, messageApi, meApi, workspaceApi, toMessageCode } from './api'
+import { catalogApi, messageApi, meApi, sessionApi, workspaceApi, toMessageCode, setRequestContext } from './api'
 import { recoverUnauthorized } from './security/session'
 
-const isLocalWorkspace = import.meta.env.DEV && import.meta.env.VITE_LOCAL_WORKSPACE === 'true'
+// Modo sesión: la aplicación sale de las asignadas al usuario en el componente de seguridad.
+const isSessionWorkspace = import.meta.env.VITE_SESSION_WORKSPACE === 'true'
+const isLocalWorkspace = !isSessionWorkspace && import.meta.env.DEV && import.meta.env.VITE_LOCAL_WORKSPACE === 'true'
+const CONTEXT_STORAGE_KEY = isSessionWorkspace ? 'sessionContext' : 'activeContext'
 
 // Los catálogos ya devuelven ids UUID; se usan esos valores para enviarlos
 // tal cual en la creación de mensajes. Fallback al nombre en minúsculas si no hay id.
@@ -31,16 +34,31 @@ function unwrapPage(result) {
 const storedContext = (() => {
   if (isLocalWorkspace) return null
   try {
-    return JSON.parse(localStorage.getItem('activeContext') || 'null')
+    return JSON.parse(localStorage.getItem(CONTEXT_STORAGE_KEY) || 'null')
   } catch {
     return null
   }
 })()
+if (isSessionWorkspace && storedContext) setRequestContext(storedContext)
+
+function unwrapList(data) {
+  return Array.isArray(data) ? data : data && Array.isArray(data.data) ? data.data : []
+}
+
+function saveContext(context) {
+  try {
+    if (context) localStorage.setItem(CONTEXT_STORAGE_KEY, JSON.stringify(context))
+    else localStorage.removeItem(CONTEXT_STORAGE_KEY)
+  } catch {
+    // El contexto solo se conserva como conveniencia del navegador.
+  }
+}
 
 // Estado global compartido entre todos los componentes (reactivo).
 export const store = reactive({
   isAuthenticated: false,
   isLocalWorkspace,
+  isSessionWorkspace,
   setSession() {
     this.isAuthenticated = true
   },
@@ -50,6 +68,12 @@ export const store = reactive({
   activeContext: storedContext,
   contextsLoading: false,
   contextsError: '',
+
+  // Modo sesión: aplicaciones asignadas al usuario y ambientes de la aplicación activa.
+  sessionApplications: [],
+  environments: [],
+  // Ambientes visibles en el listado; vacío = todos los de la aplicación.
+  environmentFilter: [],
 
   handleUnauthorized(error) {
     if (error.status !== 401 && error.code !== 'UNAUTHORIZED') return
@@ -113,6 +137,7 @@ export const store = reactive({
         throw new Error('El backend no devolvió un espacio de trabajo local válido.')
       }
       this.activeContext = workspace
+      this.environments = unwrapList(await catalogApi.environments(workspace.applicationId))
       await Promise.all([this.loadCatalogs(), this.loadMessages(false, 1)])
     } catch (e) {
       this.handleUnauthorized(e)
@@ -124,9 +149,91 @@ export const store = reactive({
     }
   },
 
+  resetMessages() {
+    this.messages = []
+    this.totalMessages = 0
+    this.totalPages = 0
+    this.messagesPage = 1
+    this.messageSearch = ''
+  },
+
+  // autoSelect solo al iniciar sesión: al pedir «Cambiar aplicación» el usuario debe ver el selector.
+  async loadSessionApplications({ autoSelect = false } = {}) {
+    if (!this.isAuthenticated || !this.isSessionWorkspace) return
+    this.contextsLoading = true
+    this.contextsError = ''
+    try {
+      this.sessionApplications = unwrapList(await sessionApi.applications())
+      const registered = this.sessionApplications.filter((app) => app.registered)
+      const current = this.activeContext
+        && registered.find((app) => app.id === this.activeContext.applicationId)
+      if (current) {
+        await this.selectSessionApplication(current)
+      } else {
+        this.clearSessionContext()
+        if (autoSelect && registered.length === 1) await this.selectSessionApplication(registered[0])
+      }
+    } catch (e) {
+      this.handleUnauthorized(e)
+      this.contextsError = e.status === 403
+        ? 'El componente de seguridad no permitió consultar tus aplicaciones.'
+        : e.message
+    } finally {
+      this.contextsLoading = false
+    }
+  },
+
+  async selectSessionApplication(app) {
+    this.contextsError = ''
+    try {
+      const organization = app.organization || null
+      this.activeContext = {
+        applicationId: app.id,
+        applicationName: app.name,
+        application: { id: app.id, name: app.name },
+        organizationId: organization?.id || '',
+        organizationName: organization?.name || '',
+        organization
+      }
+      setRequestContext(this.activeContext)
+      saveContext(this.activeContext)
+      this.environments = unwrapList(await catalogApi.environments(app.id))
+      this.environmentFilter = this.environmentFilter
+        .filter((id) => this.environments.some((env) => env.id === id))
+      this.resetMessages()
+      await Promise.all([this.loadMessages(false, 1), this.loadCatalogs()])
+    } catch (e) {
+      this.handleUnauthorized(e)
+      this.contextsError = e.message
+      throw e
+    }
+  },
+
+  async setEnvironmentFilter(environmentIds) {
+    this.environmentFilter = environmentIds
+    this.messageSearch = ''
+    await this.loadMessages(false, 1)
+  },
+
+  clearSessionContext() {
+    this.activeContext = null
+    this.environments = []
+    this.environmentFilter = []
+    setRequestContext()
+    saveContext(null)
+    this.resetMessages()
+  },
+
+  // Registra en el catálogo una aplicación del componente de seguridad con su mismo UUID.
+  async registerSessionApplication(app, { organizationId, languageId, stateId }) {
+    await messageApi.createApplication({ id: app.id, name: app.name, organizationId, languageId, stateId })
+    await this.loadSessionApplications()
+  },
+
   async loadContexts(silent = false) {
     if (!this.isAuthenticated) return
     if (this.isLocalWorkspace) return this.loadLocalWorkspace()
+    if (this.isSessionWorkspace) return this.loadSessionApplications()
     if (!silent) this.contextsLoading = true
     this.contextsError = ''
     try {
@@ -205,7 +312,7 @@ export const store = reactive({
     }
     if (!silent) this.messagesLoading = true
     try {
-      const res = unwrapPage(await messageApi.list(page, this.messagesSize))
+      const res = unwrapPage(await messageApi.list(page, this.messagesSize, this.environmentFilter))
       this.messages = res.data || []
       this.totalMessages = res.totalItems ?? 0
       this.totalPages = res.totalPages ?? 0

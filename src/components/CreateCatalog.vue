@@ -87,7 +87,8 @@ async function createFunctionality() {
     </p>
 
     <template v-else>
-      <!-- Aplicación -->
+      <!-- Aplicación: en modo sesión se registran desde el selector, con el UUID de seguridad -->
+      <template v-if="!store.isSessionWorkspace">
       <h3 class="sub">Crear aplicación</h3>
       <div class="grid">
         <label>
@@ -119,6 +120,7 @@ async function createFunctionality() {
       <button :disabled="applicationForbidden" @click="createApplication">Crear aplicación</button>
 
       <hr />
+      </template>
 
       <!-- Funcionalidad -->
       <h3 class="sub">Crear funcionalidad</h3>
