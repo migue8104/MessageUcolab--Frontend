@@ -274,10 +274,26 @@ export const store = reactive({
     }
   },
 
+  removeMessageByCode(code) {
+    if (!code) return
+    const before = this.messages.length
+    this.messages = this.messages.filter((m) => m.code !== code)
+    if (this.messages.length < before) {
+      this.totalMessages = Math.max(this.messages.length, this.totalMessages - 1)
+    }
+  },
+
   async setMessagesPage(page) {
-    if (page < 1 || page > this.totalPages || page === this.messagesPage) return
+    if (page < 1 || page === this.messagesPage) return
     this.messagesPage = page
     await this.loadMessages(false, page)
+  },
+
+  async changePageSize(size) {
+    if (!size || size === this.messagesSize) return
+    this.messagesSize = size
+    this.messagesPage = 1
+    await this.loadMessages(false, 1)
   },
 
   async refresh(silent = true) {

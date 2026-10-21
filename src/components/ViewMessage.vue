@@ -31,7 +31,6 @@ async function load() {
   try {
     const data = await messageApi.byCode(value)
     result.value = Array.isArray(data) ? data[0] || null : data
-    if (!result.value) error.value = 'No se encontró ningún mensaje con ese código.'
   } catch (e) {
     store.handleUnauthorized(e)
     error.value = e.message
@@ -52,7 +51,6 @@ async function doTranslate() {
   try {
     const data = await messageApi.translate(result.value.code, targetLanguage.value)
     translation.value = Array.isArray(data) ? data[0] || null : data
-    if (!translation.value) translateError.value = 'La traducción no devolvió resultados.'
   } catch (e) {
     store.handleUnauthorized(e)
     translationForbidden.value = e.code === 'FORBIDDEN'
