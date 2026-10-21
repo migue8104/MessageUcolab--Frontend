@@ -31,8 +31,7 @@ async function createApplication() {
         organizationId,
         languageId: appForm.languageId,
         stateId: appForm.stateId
-      },
-      store.token
+      }
     )
     appSuccess.value = 'Aplicación creada.'
     appForm.name = ''
@@ -66,8 +65,7 @@ async function createFunctionality() {
         name: funcForm.name.trim(),
         applicationId: funcForm.applicationId,
         stateId: funcForm.stateId
-      },
-      store.token
+      }
     )
     funcSuccess.value = 'Funcionalidad creada.'
     funcForm.name = ''
@@ -84,12 +82,13 @@ async function createFunctionality() {
   <section class="card">
     <h2>Catálogos</h2>
 
-    <p v-if="!store.token" class="warn">
-      No hay token. Ve a la pestaña "Crear token" y genera uno primero.
+    <p v-if="!store.isAuthenticated" class="warn">
+      Debes iniciar sesión para administrar catálogos.
     </p>
 
     <template v-else>
-      <!-- Aplicación -->
+      <!-- Aplicación: en modo sesión se registran desde el selector, con el UUID de seguridad -->
+      <template v-if="!store.isSessionWorkspace">
       <h3 class="sub">Crear aplicación</h3>
       <div class="grid">
         <label>
@@ -121,6 +120,7 @@ async function createFunctionality() {
       <button :disabled="applicationForbidden" @click="createApplication">Crear aplicación</button>
 
       <hr />
+      </template>
 
       <!-- Funcionalidad -->
       <h3 class="sub">Crear funcionalidad</h3>

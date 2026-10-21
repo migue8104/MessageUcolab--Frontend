@@ -45,7 +45,7 @@ async function loadFunctionalities() {
   const appId = store.activeContext?.applicationId || store.activeContext?.application?.id
   if (!appId) return
   try {
-    const list = await catalogApi.functionalities(appId, store.token)
+    const list = await catalogApi.functionalities(appId)
     functionalities.value = list
     if (!form.functionalityId && list.length) {
       const matchFunc = list.find((f) => f.name === props.message?.functionality)
@@ -73,7 +73,7 @@ async function updateMessage() {
   }
 
   try {
-    await messageApi.update(props.message.code, payload, store.token)
+    await messageApi.update(props.message.code, payload)
     success.value = 'Mensaje actualizado exitosamente'
     emit('updated')
     setTimeout(() => emit('cancel'), 800)

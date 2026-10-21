@@ -27,9 +27,9 @@ async function load() {
   error.value = ''
   result.value = null
   const value = toMessageCode(inputCode.value)
-  if (!store.token || !value) return
+  if (!store.isAuthenticated || !value) return
   try {
-    const data = await messageApi.byCode(value, store.token)
+    const data = await messageApi.byCode(value)
     result.value = Array.isArray(data) ? data[0] || null : data
   } catch (e) {
     store.handleUnauthorized(e)
@@ -49,7 +49,7 @@ async function doTranslate() {
   translating.value = true
   translateError.value = ''
   try {
-    const data = await messageApi.translate(result.value.code, targetLanguage.value, store.token)
+    const data = await messageApi.translate(result.value.code, targetLanguage.value)
     translation.value = Array.isArray(data) ? data[0] || null : data
   } catch (e) {
     store.handleUnauthorized(e)
@@ -113,6 +113,12 @@ watch(
           <th>Funcionalidad</th>
           <td>{{ result.functionality }}</td>
         </tr>
+        <tr>
+          <th>Ambientes</th>
+          <td>
+            <span v-for="env in result.environments || []" :key="env.id" class="badge ok env-badge">{{ env.name }}</span>
+          </td>
+        </tr>
       </tbody>
     </table>
 
@@ -163,6 +169,10 @@ watch(
 </template>
 
 <style scoped>
+.env-badge {
+  margin: 0 4px 4px 0;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;

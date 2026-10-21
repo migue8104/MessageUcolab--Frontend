@@ -16,8 +16,25 @@ const form = reactive({
   typeId: '',
   categoryId: '',
   statusId: '',
-  functionalityId: ''
+  functionalityId: '',
+  environmentIds: []
 })
+
+const allEnvironments = computed({
+  get: () => store.environments.length > 0 && form.environmentIds.length === store.environments.length,
+  set: (checked) => {
+    form.environmentIds = checked ? store.environments.map((env) => env.id) : []
+  }
+})
+
+// Por defecto se propone Develop; el usuario decide en cuáles crear el mensaje.
+function setEnvironmentDefaults() {
+  if (form.environmentIds.length || !store.environments.length) return
+  const develop = store.environments.find((env) => env.name?.toLowerCase() === 'develop')
+  form.environmentIds = [(develop || store.environments[0]).id]
+}
+
+watch(() => store.environments.length, setEnvironmentDefaults, { immediate: true })
 
 const context = computed(() => store.activeContext || {})
 
@@ -47,7 +64,7 @@ async function loadFunctionalities() {
   const appId = context.value.applicationId || context.value.application?.id
   if (!appId) return
   try {
-    functionalities.value = await catalogApi.functionalities(appId, store.token)
+    functionalities.value = await catalogApi.functionalities(appId)
   } catch (e) {
     store.handleUnauthorized(e)
     formError.value = e.message
@@ -59,6 +76,8 @@ onMounted(loadFunctionalities)
 async function createMessage() {
   success.value = ''
   formError.value = ''
+  if (!form.environmentIds.length)
+    return (formError.value = 'Selecciona al menos un ambiente.')
 
   const payload = {
     code: form.code.trim(),
@@ -67,14 +86,18 @@ async function createMessage() {
     typeId: form.typeId,
     categoryId: form.categoryId,
     statusId: form.statusId,
-    functionalityId: form.functionalityId
+    functionalityId: form.functionalityId,
+    environmentIds: form.environmentIds
   }
 
   try {
-    const data = await messageApi.create(payload, store.token)
+    const data = await messageApi.create(payload)
     // Consistencia eventual: no decimos "disponible", solo que fue recibido.
-    alert('Mensaje creado exitosamente')
-    success.value = 'Mensaje creado exitosamente'
+    const names = store.environments
+      .filter((env) => form.environmentIds.includes(env.id))
+      .map((env) => env.name)
+      .join(', ')
+    success.value = `Mensaje creado en: ${names}`
     form.code = ''
     form.title = ''
     form.content = ''
@@ -94,12 +117,24 @@ async function createMessage() {
   <section class="card">
     <h2>Crear mensaje</h2>
 
-    <h3 class="sub">Contexto</h3>
+    <h3 class="sub">{{ store.isLocalWorkspace ? 'Destino fijo de desarrollo' : 'Contexto' }}</h3>
     <dl class="ctx-summary">
       <div><dt>Organización</dt><dd>{{ context.organization?.name || context.organizationName || '—' }}</dd></div>
       <div><dt>Aplicación</dt><dd>{{ context.application?.name || context.applicationName || '—' }}</dd></div>
-      <div><dt>Ambiente</dt><dd>{{ context.environment?.name || context.environmentName || '—' }}</dd></div>
     </dl>
+
+    <h3 class="sub">Ambientes *</h3>
+    <div class="env-options" role="group" aria-label="Ambientes donde se crea el mensaje">
+      <label class="env-option">
+        <input v-model="allEnvironments" type="checkbox" :disabled="!store.environments.length" />
+        Todos
+      </label>
+      <label v-for="env in store.environments" :key="env.id" class="env-option">
+        <input v-model="form.environmentIds" type="checkbox" :value="env.id" />
+        {{ env.name }}
+      </label>
+      <small v-if="!store.environments.length" class="warn">La aplicación no tiene ambientes.</small>
+    </div>
 
     <h3 class="sub">Identificación</h3>
     <div class="grid">
@@ -179,6 +214,25 @@ async function createMessage() {
 .ctx-summary div dd {
   margin: 0;
   font-weight: 600;
+}
+
+.env-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin: 0 0 16px;
+}
+
+.env-option {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.env-option input {
+  width: auto;
 }
 
 button.ghost {

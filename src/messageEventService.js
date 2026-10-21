@@ -1,3 +1,5 @@
+import { contextHeaders } from './api'
+
 const EVENTS_PATH = '/messageucolab/v1/messages/events'
 const MAX_RECONNECT_DELAY = 30_000
 
@@ -29,7 +31,7 @@ function parseEvent(block) {
   return { event, id, data: payload }
 }
 
-export function createMessageEventService({ getToken, onEvent, onStatus } = {}) {
+export function createMessageEventService({ onEvent, onStatus, onUnauthorized } = {}) {
   let controller = null
   let reconnectTimer = null
   let stopped = true
@@ -84,12 +86,6 @@ export function createMessageEventService({ getToken, onEvent, onStatus } = {}) 
 
   async function connect() {
     if (stopped || controller) return
-    const token = getToken ? getToken() : ''
-    if (!token) {
-      status('disabled')
-      return
-    }
-
     controller = new AbortController()
     status('connecting')
     let shouldReconnect = true
@@ -98,8 +94,9 @@ export function createMessageEventService({ getToken, onEvent, onStatus } = {}) 
       const response = await fetch(EVENTS_PATH, {
         headers: {
           Accept: 'text/event-stream',
-          Authorization: `Bearer ${token}`,
+          ...contextHeaders()
         },
+        credentials: 'include',
         cache: 'no-store',
         signal: controller.signal
       })
@@ -108,6 +105,7 @@ export function createMessageEventService({ getToken, onEvent, onStatus } = {}) 
         if (response.status === 401 || response.status === 403) {
           status('unauthorized')
           shouldReconnect = false
+          if (response.status === 401 && onUnauthorized) onUnauthorized()
           return
         }
         throw new Error(`SSE request failed with HTTP ${response.status}`)
