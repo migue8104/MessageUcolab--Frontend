@@ -1,10 +1,9 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
-import { store, contextLabel } from './store'
+import { store } from './store'
 import { createMessageEventService } from './messageEventService'
 import { sessionRecovery } from './security/session'
 import SessionExpiredDialog from './components/SessionExpiredDialog.vue'
-import ContextSelect from './components/ContextSelect.vue'
 import SessionApplicationSelect from './components/SessionApplicationSelect.vue'
 import CreateCatalog from './components/CreateCatalog.vue'
 import CreateMessage from './components/CreateMessage.vue'
@@ -25,7 +24,7 @@ const editMessage = ref(null)
 const activeContext = computed(() => store.activeContext)
 const hasAccess = computed(() => store.isAuthenticated && sessionRecovery.status === 'idle')
 const sseConnectionKey = computed(
-  () => store.activeContext?.applicationId || store.activeContext?.environmentId || ''
+  () => store.activeContext?.applicationId || ''
 )
 let messageEventService = null
 
@@ -60,23 +59,11 @@ function goList() {
 }
 
 async function onChangeContext() {
-  if (store.isLocalWorkspace) return
-  if (store.isSessionWorkspace) {
-    store.clearSessionContext()
-    tab.value = 'list'
-    await store.loadSessionApplications()
-    return
-  }
-  store.activeContext = null
-  store.contexts = []
-  localStorage.removeItem('activeContext')
-  store.messages = []
-  store.totalMessages = 0
-  store.totalPages = 0
-  store.messagesPage = 1
-  store.messageSearch = ''
+  store.clearSessionContext()
+  store.activeOrganization = null
+  store.organizationApplications = []
   tab.value = 'list'
-  await store.loadContexts()
+  await store.loadSessionApplications()
 }
 
 function onContextSelected() {
@@ -94,23 +81,14 @@ async function onMessageUpdated() {
   await store.loadMessages(true, store.messagesPage)
 }
 
-async function onCatalogCreated(kind) {
-  const updates = [store.loadCatalogs()]
-  if (kind === 'application' && !store.isLocalWorkspace) updates.push(store.loadContexts())
-  await Promise.all(updates)
+async function onCatalogCreated() {
+  await store.loadCatalogs()
 }
 
 onMounted(() => {
   if (isSecurityRoute || !hasAccess.value) return
 
-  // En modo sesión siempre se revalida la aplicación guardada contra la sesión actual.
-  if (store.isSessionWorkspace) {
-    store.loadSessionApplications({ autoSelect: true })
-  } else if (store.activeContext) {
-    Promise.all([store.loadCatalogs(), store.loadMessages(false, 1)])
-  } else {
-    store.loadContexts()
-  }
+  store.loadSessionApplications()
 })
 
 function handleMessageEvent({ event, data }) {
@@ -120,7 +98,7 @@ function handleMessageEvent({ event, data }) {
   // En modo sesión el backend ya envía solo eventos de la aplicación; se respeta el filtro activo.
   const visibleEnvironments = store.environmentFilter.length
     ? store.environmentFilter
-    : store.isSessionWorkspace ? null : [store.activeContext?.environmentId || store.activeContext?.environment?.id]
+    : null
   if (payload?.environmentId && visibleEnvironments && !visibleEnvironments.includes(payload.environmentId)) return
   if (eventType === 'MessageDeleted') {
     store.removeMessageByCode(payload?.messageCode)
@@ -132,12 +110,12 @@ function handleMessageEvent({ event, data }) {
 
 watch(
   () => [sseConnectionKey.value, hasAccess.value],
-  ([environmentId, authenticated]) => {
+  ([applicationId, authenticated]) => {
     if (messageEventService) {
       messageEventService.stop()
       messageEventService = null
     }
-    if (isSecurityRoute || !authenticated || !environmentId) return
+    if (isSecurityRoute || !authenticated || !applicationId) return
 
     messageEventService = createMessageEventService({
       onEvent: handleMessageEvent,
@@ -190,7 +168,7 @@ onBeforeUnmount(() => {
         <span class="sidebar-status" :class="{ online: hasAccess }"></span>
         <div>
           <strong>{{ hasAccess ? 'Sesión activa' : 'Acceso pendiente' }}</strong>
-          <small>{{ store.isLocalWorkspace ? 'Destino local fijo' : activeContext ? 'Contexto seleccionado' : 'MessageUcoLab' }}</small>
+          <small>{{ activeContext ? 'Contexto seleccionado' : 'MessageUcoLab' }}</small>
         </div>
       </div>
     </aside>
@@ -204,13 +182,12 @@ onBeforeUnmount(() => {
         <div class="bar-actions">
           <div v-if="hasAccess && activeContext" class="ctx-pill" aria-label="Contexto activo">
             <span class="context-dot" aria-hidden="true"></span>
-            {{ store.isSessionWorkspace ? activeContext.applicationName : contextLabel(activeContext) }}
+            {{ activeContext.organizationName }} / {{ activeContext.applicationName }}
           </div>
-          <button v-if="hasAccess && activeContext && !store.isLocalWorkspace" class="context-action" @click="onChangeContext">
-            {{ store.isSessionWorkspace ? 'Cambiar aplicación' : 'Cambiar contexto' }}
+          <button v-if="hasAccess && activeContext" class="context-action" @click="onChangeContext">
+            Mis organizaciones
           </button>
-          <span v-if="store.isLocalWorkspace" class="badge warn">Desarrollo local</span>
-          <span v-if="hasAccess" class="badge ok">Sesión activa</span>
+          <span v-if="hasAccess" class="badge ok">{{ store.workspaceUser?.email || 'Sesión activa' }}</span>
           <span v-else class="badge warn">Sin autenticar</span>
         </div>
       </header>
@@ -218,15 +195,7 @@ onBeforeUnmount(() => {
       <main class="workspace" :inert="!hasAccess">
         <SecurityAdministrationPage v-if="isSecurityRoute && sessionRecovery.status === 'idle'" />
         <section v-else-if="!activeContext" class="auth-stage">
-          <div v-if="store.isLocalWorkspace" class="card">
-            <h2>Espacio de trabajo local</h2>
-            <p>La aplicación y el ambiente están fijados en la configuración del backend.</p>
-            <p v-if="store.contextsLoading" class="info">Cargando configuración local…</p>
-            <p v-if="store.contextsError" class="err" role="alert">{{ store.contextsError }}</p>
-            <button :disabled="store.contextsLoading" @click="store.loadLocalWorkspace()">Reintentar</button>
-          </div>
-          <SessionApplicationSelect v-else-if="store.isSessionWorkspace" @selected="onContextSelected" />
-          <ContextSelect v-else @selected="onContextSelected" />
+          <SessionApplicationSelect @selected="onContextSelected" />
         </section>
         <template v-else>
           <ListMessages v-if="tab === 'list'" @view="goView" @create="goCreate" @edit="goEdit" />

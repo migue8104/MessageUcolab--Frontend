@@ -8,7 +8,7 @@ const BASE = import.meta.env.DEV
     ? `${API_ORIGIN}${API_PATH}`
     : API_PATH
 
-// Aplicación elegida en modo sesión; el backend la valida contra la sesión.
+// Aplicación elegida; el backend siempre la valida contra la sesión.
 // El ambiente no es parte del contexto: es un dato de cada mensaje.
 const requestContext = { applicationId: '' }
 
@@ -104,18 +104,16 @@ export const catalogApi = {
   messageEnvironmentStates: () => request('/v1/catalog/message-environment-states')
 }
 
-export const workspaceApi = {
-  local: () => request('/v1/workspace/local')
-}
-
 export const sessionApi = {
+  user: () => request('/v1/session/user'),
   applications: () => request('/v1/session/applications')
 }
 
-export const meApi = {
-  contexts: () => request('/v1/me/contexts'),
-  activeContext: () => request('/v1/me/context'),
-  selectContext: (body) => request('/v1/me/context', { method: 'PUT', body })
+export const workspaceApi = {
+  organizations: () => request('/v1/organizations'),
+  createOrganization: (name) => request('/v1/organizations', { method: 'POST', body: { name } }),
+  applications: (organizationId) =>
+    request(`/v1/organizations/${encodeURIComponent(organizationId)}/applications`)
 }
 
 export const messageApi = {

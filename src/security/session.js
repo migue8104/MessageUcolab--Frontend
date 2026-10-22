@@ -24,6 +24,23 @@ function readLoginAttempt() {
   return attempt
 }
 
+function restoreLoginFragment() {
+  try {
+    const attempt = readLoginAttempt()
+    if (typeof attempt?.returnHash !== 'string'
+        || !attempt.returnHash.startsWith('#')
+        || attempt.returnTo !== window.location.href
+        || window.location.hash) return
+
+    const returnUrl = new URL(window.location.href)
+    returnUrl.hash = attempt.returnHash
+    window.history.replaceState(window.history.state, '', returnUrl.href)
+    sessionStorage.setItem(LOGIN_REDIRECT_KEY, JSON.stringify({ confirmed: attempt.confirmed }))
+  } catch {
+    // Recuperar la pestaña es opcional; no debe impedir el acceso autenticado.
+  }
+}
+
 function blockRecovery(message = RECOVERY_BLOCKED_MESSAGE) {
   sessionRecovery.status = 'blocked'
   sessionRecovery.message = message
@@ -34,9 +51,16 @@ function blockRecovery(message = RECOVERY_BLOCKED_MESSAGE) {
 export function redirectToLogin() {
   if (sessionRecovery.status === 'redirecting') return false
 
+  // El PDP admite el origen y la ruta de retorno, pero rechaza fragmentos (#...).
+  const returnUrl = new URL(window.location.href)
+  const returnHash = returnUrl.hash
+  returnUrl.hash = ''
+
   try {
     sessionStorage.setItem(LOGIN_REDIRECT_KEY, JSON.stringify({
-      confirmed: false
+      confirmed: false,
+      returnTo: returnUrl.href,
+      returnHash
     }))
   } catch {
     // La navegación es manual y no crea bucles aunque sessionStorage no esté disponible.
@@ -44,7 +68,7 @@ export function redirectToLogin() {
 
   sessionRecovery.status = 'redirecting'
   sessionRecovery.message = 'Restableciendo el acceso mediante el inicio de sesión central…'
-  const returnTo = encodeURIComponent(window.location.href)
+  const returnTo = encodeURIComponent(returnUrl.href)
   try {
     window.location.assign(
       `${pdpUrl}/oauth2/authorization/keycloak?return_to=${returnTo}`
@@ -98,5 +122,7 @@ export async function requireSession() {
 
   // /session confirma al BFF, no la vigencia de la credencial frente al PEP.
   // El guard solo se confirma después de una lectura protegida exitosa.
-  return response.json()
+  const session = await response.json()
+  restoreLoginFragment()
+  return session
 }

@@ -1,47 +1,9 @@
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive } from 'vue'
 import { messageApi } from '../api'
 import { store } from '../store'
 
 const emit = defineEmits(['created'])
-
-const context = computed(() => store.activeContext || {})
-
-// --- Formulario: Aplicación ---
-const appForm = reactive({
-  name: '',
-  languageId: store.languages[0]?.value || '',
-  stateId: store.applicationStates[0]?.value || ''
-})
-const appError = ref('')
-const appSuccess = ref('')
-const applicationForbidden = ref(false)
-
-async function createApplication() {
-  appError.value = ''
-  appSuccess.value = ''
-  if (!appForm.name.trim()) return (appError.value = 'El nombre no puede estar vacío.')
-  const organizationId = context.value.organization?.id || context.value.organizationId || ''
-  if (!organizationId)
-    return (appError.value = 'No hay organización activa. Selecciona un contexto primero.')
-  try {
-    await messageApi.createApplication(
-      {
-        name: appForm.name.trim(),
-        organizationId,
-        languageId: appForm.languageId,
-        stateId: appForm.stateId
-      }
-    )
-    appSuccess.value = 'Aplicación creada.'
-    appForm.name = ''
-    emit('created', 'application')
-  } catch (e) {
-    store.handleUnauthorized(e)
-    applicationForbidden.value = e.code === 'FORBIDDEN'
-    appError.value = e.message
-  }
-}
 
 // --- Formulario: Funcionalidad ---
 const funcForm = reactive({
@@ -87,41 +49,6 @@ async function createFunctionality() {
     </p>
 
     <template v-else>
-      <!-- Aplicación: en modo sesión se registran desde el selector, con el UUID de seguridad -->
-      <template v-if="!store.isSessionWorkspace">
-      <h3 class="sub">Crear aplicación</h3>
-      <div class="grid">
-        <label>
-          Nombre
-          <input v-model="appForm.name" placeholder="App Documental Flow" />
-        </label>
-        <label>
-          Organización
-          <input
-            :value="context.organization?.name || context.organizationName || (context.organizationId || 'Selecciona un contexto')"
-            disabled
-          />
-        </label>
-        <label>
-          Idioma (language_base)
-          <select v-model="appForm.languageId">
-            <option v-for="l in store.languages" :key="l.value" :value="l.value">{{ l.name }}</option>
-          </select>
-        </label>
-        <label>
-          Estado (application_state)
-          <select v-model="appForm.stateId">
-            <option v-for="s in store.applicationStates" :key="s.value" :value="s.value">{{ s.name }}</option>
-          </select>
-        </label>
-      </div>
-      <p v-if="appError" class="err">{{ appError }}</p>
-      <p v-if="appSuccess" class="ok">{{ appSuccess }}</p>
-      <button :disabled="applicationForbidden" @click="createApplication">Crear aplicación</button>
-
-      <hr />
-      </template>
-
       <!-- Funcionalidad -->
       <h3 class="sub">Crear funcionalidad</h3>
       <div class="grid">

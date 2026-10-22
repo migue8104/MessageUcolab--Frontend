@@ -1,11 +1,9 @@
 import { reactive } from 'vue'
-import { catalogApi, messageApi, meApi, sessionApi, workspaceApi, toMessageCode, setRequestContext } from './api'
+import { catalogApi, messageApi, sessionApi, workspaceApi, toMessageCode, setRequestContext } from './api'
 import { recoverUnauthorized } from './security/session'
 
-// Modo sesión: la aplicación sale de las asignadas al usuario en el componente de seguridad.
-const isSessionWorkspace = import.meta.env.VITE_SESSION_WORKSPACE === 'true'
-const isLocalWorkspace = !isSessionWorkspace && import.meta.env.DEV && import.meta.env.VITE_LOCAL_WORKSPACE === 'true'
-const CONTEXT_STORAGE_KEY = isSessionWorkspace ? 'sessionContext' : 'activeContext'
+// Seguridad autentica; MessageUcoLab valida la propiedad de organizaciones y aplicaciones.
+const CONTEXT_STORAGE_KEY = 'personalWorkspaceContext'
 
 // Los catálogos ya devuelven ids UUID; se usan esos valores para enviarlos
 // tal cual en la creación de mensajes. Fallback al nombre en minúsculas si no hay id.
@@ -31,15 +29,7 @@ function unwrapPage(result) {
   return payload || {}
 }
 
-const storedContext = (() => {
-  if (isLocalWorkspace) return null
-  try {
-    return JSON.parse(localStorage.getItem(CONTEXT_STORAGE_KEY) || 'null')
-  } catch {
-    return null
-  }
-})()
-if (isSessionWorkspace && storedContext) setRequestContext(storedContext)
+// Nunca mostrar datos de un contexto guardado antes de validar la sesion actual.
 
 function unwrapList(data) {
   return Array.isArray(data) ? data : data && Array.isArray(data.data) ? data.data : []
@@ -57,19 +47,19 @@ function saveContext(context) {
 // Estado global compartido entre todos los componentes (reactivo).
 export const store = reactive({
   isAuthenticated: false,
-  isLocalWorkspace,
-  isSessionWorkspace,
   setSession() {
     this.isAuthenticated = true
   },
 
-  // Destino fijo local o contexto activo del usuario, según el modo.
-  contexts: [],
-  activeContext: storedContext,
+  activeContext: null,
+  workspaceUser: null,
+  organizations: [],
+  activeOrganization: null,
+  organizationApplications: [],
   contextsLoading: false,
   contextsError: '',
 
-  // Modo sesión: aplicaciones asignadas al usuario y ambientes de la aplicación activa.
+  // Aplicaciones de las organizaciones propias y ambientes de la aplicación activa.
   sessionApplications: [],
   environments: [],
   // Ambientes visibles en el listado; vacío = todos los de la aplicación.
@@ -79,6 +69,12 @@ export const store = reactive({
     if (error.status !== 401 && error.code !== 'UNAUTHORIZED') return
 
     this.isAuthenticated = false
+    this.clearSessionContext()
+    this.workspaceUser = null
+    this.organizations = []
+    this.activeOrganization = null
+    this.organizationApplications = []
+    this.sessionApplications = []
     this.messages = []
     this.applications = []
     this.types = []
@@ -126,29 +122,6 @@ export const store = reactive({
   messageRefreshInFlight: false,
   messageRefreshPending: null,
 
-  async loadLocalWorkspace() {
-    if (!this.isAuthenticated || !this.isLocalWorkspace) return
-    this.contextsLoading = true
-    this.contextsError = ''
-    try {
-      const data = await workspaceApi.local()
-      const workspace = Array.isArray(data) ? data[0] : null
-      if (!workspace?.organizationId || !workspace.applicationId || !workspace.environmentId) {
-        throw new Error('El backend no devolvió un espacio de trabajo local válido.')
-      }
-      this.activeContext = workspace
-      this.environments = unwrapList(await catalogApi.environments(workspace.applicationId))
-      await Promise.all([this.loadCatalogs(), this.loadMessages(false, 1)])
-    } catch (e) {
-      this.handleUnauthorized(e)
-      this.contextsError = e.status === 404
-        ? 'Activa el perfil local-workspace en el backend para usar el destino fijo de desarrollo.'
-        : e.message
-    } finally {
-      this.contextsLoading = false
-    }
-  },
-
   resetMessages() {
     this.messages = []
     this.totalMessages = 0
@@ -157,13 +130,18 @@ export const store = reactive({
     this.messageSearch = ''
   },
 
-  // autoSelect solo al iniciar sesión: al pedir «Cambiar aplicación» el usuario debe ver el selector.
-  async loadSessionApplications({ autoSelect = false } = {}) {
-    if (!this.isAuthenticated || !this.isSessionWorkspace) return
+  async loadSessionApplications() {
+    if (!this.isAuthenticated) return
     this.contextsLoading = true
     this.contextsError = ''
     try {
-      this.sessionApplications = unwrapList(await sessionApi.applications())
+      const user = await sessionApi.user()
+      const [organizations, applications] = await Promise.all([
+        workspaceApi.organizations(), sessionApi.applications()
+      ])
+      this.workspaceUser = unwrapList(user)[0] || null
+      this.organizations = unwrapList(organizations)
+      this.sessionApplications = unwrapList(applications)
       const registered = this.sessionApplications.filter((app) => app.registered)
       const current = this.activeContext
         && registered.find((app) => app.id === this.activeContext.applicationId)
@@ -171,16 +149,47 @@ export const store = reactive({
         await this.selectSessionApplication(current)
       } else {
         this.clearSessionContext()
-        if (autoSelect && registered.length === 1) await this.selectSessionApplication(registered[0])
       }
     } catch (e) {
       this.handleUnauthorized(e)
       this.contextsError = e.status === 403
-        ? 'El componente de seguridad no permitió consultar tus aplicaciones.'
+        ? 'No tienes permiso para consultar tu espacio de trabajo. Solicita revisar los permisos de las rutas en seguridad.'
         : e.message
     } finally {
       this.contextsLoading = false
     }
+  },
+
+  async selectOrganization(organization) {
+    this.contextsLoading = true
+    this.contextsError = ''
+    this.organizationApplications = []
+    this.activeOrganization = null
+    try {
+      const applications = unwrapList(await workspaceApi.applications(organization.id))
+      this.activeOrganization = organization
+      this.organizationApplications = applications
+    } catch (e) {
+      this.handleUnauthorized(e)
+      this.contextsError = e.message
+      throw e
+    } finally {
+      this.contextsLoading = false
+    }
+  },
+
+  async createPersonalOrganization(name) {
+    const created = unwrapList(await workspaceApi.createOrganization(name))[0]
+    await this.loadSessionApplications()
+    if (created) await this.selectOrganization(created)
+  },
+
+  async createPersonalApplication(payload) {
+    const organization = this.activeOrganization
+    if (!organization) return
+    await messageApi.createApplication({ ...payload, organizationId: organization.id })
+    await this.loadSessionApplications()
+    await this.selectOrganization(organization)
   },
 
   async selectSessionApplication(app) {
@@ -203,6 +212,7 @@ export const store = reactive({
       this.resetMessages()
       await Promise.all([this.loadMessages(false, 1), this.loadCatalogs()])
     } catch (e) {
+      this.clearSessionContext()
       this.handleUnauthorized(e)
       this.contextsError = e.message
       throw e
@@ -222,62 +232,6 @@ export const store = reactive({
     setRequestContext()
     saveContext(null)
     this.resetMessages()
-  },
-
-  // Registra en el catálogo una aplicación del componente de seguridad con su mismo UUID.
-  async registerSessionApplication(app, { organizationId, languageId, stateId }) {
-    await messageApi.createApplication({ id: app.id, name: app.name, organizationId, languageId, stateId })
-    await this.loadSessionApplications()
-  },
-
-  async loadContexts(silent = false) {
-    if (!this.isAuthenticated) return
-    if (this.isLocalWorkspace) return this.loadLocalWorkspace()
-    if (this.isSessionWorkspace) return this.loadSessionApplications()
-    if (!silent) this.contextsLoading = true
-    this.contextsError = ''
-    try {
-      const data = await meApi.contexts()
-      this.contexts = Array.isArray(data) ? data : data && data.data ? data.data : []
-      // Si solo había un contexto y no hay uno activo, se selecciona automáticamente
-      if (!this.activeContext && this.contexts.length === 1) {
-        await this.selectContext(this.contexts[0])
-      }
-    } catch (e) {
-      this.handleUnauthorized(e)
-      this.contextsError = e.message
-    } finally {
-      this.contextsLoading = false
-    }
-  },
-
-  async selectContext(ctx) {
-    if (this.isLocalWorkspace) return
-    this.contextsError = ''
-    try {
-      // El backend espera { organizationId, applicationId, environmentId }
-      const result = await meApi.selectContext(
-        {
-          organizationId: ctx.organization?.id || ctx.organizationId || '',
-          applicationId: ctx.application?.id || ctx.applicationId || '',
-          environmentId: ctx.environment?.id || ctx.environmentId || ''
-        }
-      )
-      // Mantiene los nombres para mostrarlos y agrega los ids devueltos por el backend
-      const ids = Array.isArray(result) ? result[0] || {} : result || {}
-      this.activeContext = { ...ctx, ...ids }
-      localStorage.setItem('activeContext', JSON.stringify(this.activeContext))
-      this.messages = []
-      this.totalMessages = 0
-      this.totalPages = 0
-      this.messagesPage = 1
-      this.messageSearch = ''
-      await Promise.all([this.loadMessages(false, 1), this.loadCatalogs()])
-    } catch (e) {
-      this.handleUnauthorized(e)
-      this.contextsError = e.message
-      throw e
-    }
   },
 
   async loadCatalogs(silent = false) {
@@ -410,12 +364,3 @@ export const store = reactive({
     await Promise.all([this.loadCatalogs(silent), this.loadMessages(silent)])
   }
 })
-
-// Helper para mostrar el nombre de un contexto
-export function contextLabel(ctx) {
-  if (!ctx) return ''
-  const org = (ctx.organization && (ctx.organization.name || ctx.organization)) || ctx.organizationName || ''
-  const app = (ctx.application && (ctx.application.name || ctx.application)) || ctx.applicationName || ''
-  const env = (ctx.environment && (ctx.environment.name || ctx.environment)) || ctx.environmentName || ''
-  return [org, app, env].filter(Boolean).join(' / ')
-}
