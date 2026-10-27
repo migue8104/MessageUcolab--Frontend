@@ -1,5 +1,5 @@
 import { reactive } from 'vue'
-import { catalogApi, messageApi, sessionApi, workspaceApi, toMessageCode, setRequestContext } from './api'
+import { catalogApi, messageApi, sessionApi, workspaceApi, setRequestContext } from './api'
 import { recoverUnauthorized } from './security/session'
 
 // Seguridad autentica; MessageUcoLab valida la propiedad de organizaciones y aplicaciones.
@@ -116,6 +116,9 @@ export const store = reactive({
   messagesPage: 1,
   messagesSize: 20,
   messageSearch: '',
+  messageStatusFilter: '',
+  functionalityFilter: '',
+  messagesRequestVersion: 0,
   messagesLoading: false,
   messagesError: '',
   messageRefreshTimer: null,
@@ -128,6 +131,10 @@ export const store = reactive({
     this.totalPages = 0
     this.messagesPage = 1
     this.messageSearch = ''
+    this.messageStatusFilter = ''
+    this.functionalityFilter = ''
+    this.messagesRequestVersion += 1
+    this.messagesLoading = false
   },
 
   async loadSessionApplications() {
@@ -220,8 +227,15 @@ export const store = reactive({
   },
 
   async setEnvironmentFilter(environmentIds) {
-    this.environmentFilter = environmentIds
-    this.messageSearch = ''
+    await this.setMessageFilters({ environmentIds })
+  },
+
+  async setMessageFilters({ code = this.messageSearch, statusId = this.messageStatusFilter,
+    functionalityId = this.functionalityFilter, environmentIds = this.environmentFilter } = {}) {
+    this.messageSearch = code
+    this.messageStatusFilter = statusId
+    this.functionalityFilter = functionalityId
+    this.environmentFilter = [...environmentIds]
     await this.loadMessages(false, 1)
   },
 
@@ -257,26 +271,36 @@ export const store = reactive({
   },
 
   async loadMessages(silent = false, page = this.messagesPage) {
+    const requestVersion = ++this.messagesRequestVersion
+    const applicationId = this.activeContext?.applicationId
     this.messagesError = ''
-    // Sin sesiÃ³n confirmada no se consultan los recursos protegidos.
-    if (!this.isAuthenticated) {
+    // Sin sesión y aplicación confirmadas no se consultan los recursos protegidos.
+    if (!this.isAuthenticated || !applicationId) {
       this.messages = []
       this.messagesLoading = false
       return
     }
     if (!silent) this.messagesLoading = true
     try {
-      const res = unwrapPage(await messageApi.list(page, this.messagesSize, this.environmentFilter))
+      const res = unwrapPage(await messageApi.list(page, this.messagesSize, this.environmentFilter, {
+        code: this.messageSearch,
+        statusId: this.messageStatusFilter,
+        functionalityId: this.functionalityFilter
+      }))
+      if (requestVersion !== this.messagesRequestVersion || applicationId !== this.activeContext?.applicationId) return
       this.messages = res.data || []
       this.totalMessages = res.totalItems ?? 0
       this.totalPages = res.totalPages ?? 0
       this.messagesPage = page
     } catch (e) {
       this.handleUnauthorized(e)
+      if (requestVersion !== this.messagesRequestVersion) return
       this.messagesError = e.message
       this.messages = []
+      this.totalMessages = 0
+      this.totalPages = 0
     } finally {
-      this.messagesLoading = false
+      if (requestVersion === this.messagesRequestVersion) this.messagesLoading = false
     }
   },
 
@@ -298,30 +322,11 @@ export const store = reactive({
     }
     this.messageRefreshInFlight = true
     try {
-      const eventCode = toMessageCode(event?.messageCode)
-      if (this.messageSearch) {
-        const data = await messageApi.byCode(this.messageSearch)
-        const result = Array.isArray(data) ? data : data && data.data ? data.data : []
-        this.messages = result.slice(0, 1)
-        this.totalMessages = this.messages.length
-        this.totalPages = 1
-      } else if (eventCode) {
-        const data = await messageApi.byCode(eventCode)
-        const result = Array.isArray(data) ? data : data && data.data ? data.data : []
-        const message = result[0]
-        if (message) {
-          const currentIndex = this.messages.findIndex((item) => item.code === message.code)
-          if (currentIndex === -1) {
-            this.messages = [message, ...this.messages]
-            this.totalMessages += 1
-          } else {
-            this.messages.splice(currentIndex, 1, message)
-          }
-        }
-      }
-      if (!this.messageSearch) {
-        await this.loadMessages(true, this.messagesPage)
-      }
+      // Todos los refrescos conservan los filtros y los totales calculados por el servidor.
+      const membershipChanged = event?.type === 'MessageDeleted'
+        || (event?.type === 'MessageUpdated' && (this.messageStatusFilter || this.functionalityFilter))
+      const page = membershipChanged ? 1 : this.messagesPage
+      await this.loadMessages(true, page)
     } catch (e) {
       this.handleUnauthorized(e)
       this.messagesError = e.message

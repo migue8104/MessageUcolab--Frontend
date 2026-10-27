@@ -1,6 +1,8 @@
 import { reactive } from 'vue'
 
 const pdpUrl = import.meta.env.VITE_PDP_URL.replace(/\/+$/, '')
+const securityBaselineFrontendUrl = (import.meta.env.VITE_SECURITY_BASELINE_FRONTEND_URL || '')
+  .trim().replace(/\/+$/, '')
 const LOGIN_REDIRECT_KEY = 'security-baseline-login-redirect'
 const SESSION_LOST_MESSAGE =
   'Tu sesión se perdió por inactividad o vencimiento. Vuelve a conectar para continuar.'
@@ -9,7 +11,8 @@ const RECOVERY_BLOCKED_MESSAGE =
 
 export const sessionRecovery = reactive({
   status: 'idle',
-  message: ''
+  message: '',
+  requiresReauthentication: false
 })
 
 function readLoginAttempt() {
@@ -50,6 +53,10 @@ function blockRecovery(message = RECOVERY_BLOCKED_MESSAGE) {
 // Solo se invoca desde el botón de reconexión; nunca al recibir un 401.
 export function redirectToLogin() {
   if (sessionRecovery.status === 'redirecting') return false
+  const reauthenticate = sessionRecovery.requiresReauthentication
+  if (!reauthenticate && !securityBaselineFrontendUrl) {
+    return blockRecovery('No está configurada la URL del inicio de sesión central (VITE_SECURITY_BASELINE_FRONTEND_URL).')
+  }
 
   // El PDP admite el origen y la ruta de retorno, pero rechaza fragmentos (#...).
   const returnUrl = new URL(window.location.href)
@@ -67,22 +74,33 @@ export function redirectToLogin() {
   }
 
   sessionRecovery.status = 'redirecting'
-  sessionRecovery.message = 'Restableciendo el acceso mediante el inicio de sesión central…'
-  const returnTo = encodeURIComponent(returnUrl.href)
+  sessionRecovery.message = reauthenticate
+    ? 'Restableciendo la autenticación mediante el BFF de seguridad…'
+    : 'Abriendo el inicio de sesión central…'
   try {
-    window.location.assign(
-      `${pdpUrl}/oauth2/authorization/keycloak?return_to=${returnTo}`
-    )
+    // El login central puede devolver una sesión existente sin renovar la credencial.
+    // Ante un 401 de negocio, reiniciar OAuth por el BFF; nunca usar tokens en la SPA.
+    const loginUrl = new URL(reauthenticate
+      ? `${pdpUrl}/oauth2/authorization/keycloak`
+      : `${securityBaselineFrontendUrl}/login`)
+    if (loginUrl.protocol !== 'http:' && loginUrl.protocol !== 'https:') {
+      return blockRecovery('La URL de autenticación debe usar HTTP o HTTPS.')
+    }
+    // Cada entrada tiene su contrato: returnTo en la SPA central, return_to en el BFF.
+    loginUrl.searchParams.set(reauthenticate ? 'return_to' : 'returnTo', returnUrl.href)
+    window.location.assign(loginUrl.href)
   } catch {
     return blockRecovery('No se pudo abrir el inicio de sesión central. Pulsa Volver a Conectar para intentarlo nuevamente.')
   }
   return false
 }
 
-export function recoverUnauthorized() {
+export function recoverUnauthorized({ reauthenticate = true } = {}) {
   if (sessionRecovery.status === 'blocked' || sessionRecovery.status === 'redirecting') {
     return Promise.resolve(false)
   }
+  // Los rechazos de negocio requieren OAuth aunque /api/v1/session siga respondiendo 200.
+  sessionRecovery.requiresReauthentication = reauthenticate
   let message = SESSION_LOST_MESSAGE
   try {
     if (readLoginAttempt()?.confirmed === false) message = RECOVERY_BLOCKED_MESSAGE
@@ -113,7 +131,8 @@ export async function requireSession() {
   })
 
   if (response.status === 401) {
-    return recoverUnauthorized()
+    // Sin sesión BFF, el acceso inicial debe pasar por la pantalla central de seguridad.
+    return recoverUnauthorized({ reauthenticate: false })
   }
 
   if (!response.ok) {
