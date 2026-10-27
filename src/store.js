@@ -116,6 +116,9 @@ export const store = reactive({
   messagesPage: 1,
   messagesSize: 20,
   messageSearch: '',
+  messageTitleSearch: '',
+  messagesSortColumn: 'code',
+  messagesSortDirection: 'ASC',
   messageStatusFilter: '',
   functionalityFilter: '',
   messagesRequestVersion: 0,
@@ -131,6 +134,9 @@ export const store = reactive({
     this.totalPages = 0
     this.messagesPage = 1
     this.messageSearch = ''
+    this.messageTitleSearch = ''
+    this.messagesSortColumn = 'code'
+    this.messagesSortDirection = 'ASC'
     this.messageStatusFilter = ''
     this.functionalityFilter = ''
     this.messagesRequestVersion += 1
@@ -230,12 +236,21 @@ export const store = reactive({
     await this.setMessageFilters({ environmentIds })
   },
 
-  async setMessageFilters({ code = this.messageSearch, statusId = this.messageStatusFilter,
+  async setMessageFilters({ code = this.messageSearch, title = this.messageTitleSearch, statusId = this.messageStatusFilter,
     functionalityId = this.functionalityFilter, environmentIds = this.environmentFilter } = {}) {
     this.messageSearch = code
+    this.messageTitleSearch = title
     this.messageStatusFilter = statusId
     this.functionalityFilter = functionalityId
     this.environmentFilter = [...environmentIds]
+    await this.loadMessages(false, 1)
+  },
+
+  async toggleMessagesUpdatedAtSort() {
+    this.messagesSortDirection = this.messagesSortColumn === 'updatedAt' && this.messagesSortDirection === 'DESC'
+      ? 'ASC'
+      : 'DESC'
+    this.messagesSortColumn = 'updatedAt'
     await this.loadMessages(false, 1)
   },
 
@@ -284,8 +299,11 @@ export const store = reactive({
     try {
       const res = unwrapPage(await messageApi.list(page, this.messagesSize, this.environmentFilter, {
         code: this.messageSearch,
+        title: this.messageTitleSearch,
         statusId: this.messageStatusFilter,
-        functionalityId: this.functionalityFilter
+        functionalityId: this.functionalityFilter,
+        sort: this.messagesSortDirection,
+        columnSort: this.messagesSortColumn
       }))
       if (requestVersion !== this.messagesRequestVersion || applicationId !== this.activeContext?.applicationId) return
       this.messages = res.data || []
@@ -324,7 +342,8 @@ export const store = reactive({
     try {
       // Todos los refrescos conservan los filtros y los totales calculados por el servidor.
       const membershipChanged = event?.type === 'MessageDeleted'
-        || (event?.type === 'MessageUpdated' && (this.messageStatusFilter || this.functionalityFilter))
+        || (event?.type === 'MessageUpdated'
+          && (this.messageStatusFilter || this.functionalityFilter || this.messageTitleSearch))
       const page = membershipChanged ? 1 : this.messagesPage
       await this.loadMessages(true, page)
     } catch (e) {
@@ -365,7 +384,6 @@ export const store = reactive({
   async refresh(silent = true) {
     // Los contextos NO se consultan aquí: solo cambian al autenticar o
     // al entrar al selector, evitando peticiones extra al backend.
-    this.messageSearch = ''
     await Promise.all([this.loadCatalogs(silent), this.loadMessages(silent)])
   }
 })

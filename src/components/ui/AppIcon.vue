@@ -13,6 +13,8 @@ const paths = {
   back: 'M19 12H5 M11 6l-6 6 6 6',
   chevron: 'M9 5l7 7-7 7',
   down: 'M6 9l6 6 6-6',
+  up: 'M6 15l6-6 6 6',
+  sort: 'M8 4v16 M4 8l4-4 4 4 M16 20V4 M12 16l4 4 4-4',
   close: 'M6 6l12 12 M6 18L18 6',
   menu: 'M4 6h16 M4 12h16 M4 18h16',
   edit: 'M14 5l5 5 M4 20l1-6L16 3l5 5-11 11z',

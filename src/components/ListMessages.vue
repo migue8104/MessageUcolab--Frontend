@@ -45,6 +45,17 @@ async function confirmDelete(message) {
 }
 
 const search = ref(store.messageSearch)
+const titleSearch = ref(store.messageTitleSearch)
+const updatedAtSort = computed(() => store.messagesSortColumn === 'updatedAt'
+  ? (store.messagesSortDirection === 'ASC' ? 'ascending' : 'descending')
+  : 'none')
+const sortAction = computed(() => updatedAtSort.value === 'descending'
+  ? 'Ordenar del más antiguo al más reciente'
+  : 'Ordenar del más reciente al más antiguo')
+
+watch(() => store.messageSearch, (value) => { search.value = value })
+watch(() => store.messageTitleSearch, (value) => { titleSearch.value = value })
+
 const functionalities = ref([])
 const functionalitiesLoading = ref(false)
 const functionalitiesError = ref('')
@@ -77,7 +88,8 @@ watch(() => store.activeContext?.applicationId, async (applicationId, _previous,
 
 async function clearFilters() {
   search.value = ''
-  await store.setMessageFilters({ code: '', statusId: '', functionalityId: '', environmentIds: [] })
+  titleSearch.value = ''
+  await store.setMessageFilters({ code: '', title: '', statusId: '', functionalityId: '', environmentIds: [] })
 }
 
 // Vacío = todos los ambientes de la aplicación.
@@ -86,9 +98,9 @@ const selectedEnvironments = computed({
   set: (ids) => store.setEnvironmentFilter(ids)
 })
 
-async function searchCode() {
+async function searchMessages() {
   if (store.messagesLoading) return
-  await store.setMessageFilters({ code: toMessageCode(search.value) })
+  await store.setMessageFilters({ code: toMessageCode(search.value), title: titleSearch.value.trim() })
 }
 
 function next() {
@@ -103,14 +115,27 @@ function prev() {
 <template>
   <section class="card">
     <PageHeader title="Mensajes" description="Consulta, filtra y gestiona todos los mensajes registrados."><button @click="emit('create')"><AppIcon name="plus" :size="17" />Crear mensaje</button></PageHeader>
-    <form class="search-bar" @submit.prevent="searchCode">
-      <label class="sr-only" for="message-search">Buscar por código</label>
-      <input
-        id="message-search"
-        v-model="search"
-        placeholder="Buscar por código (ej. MSG_WELCOME)…"
-      />
-      <button type="submit" class="search-submit" aria-label="Buscar mensaje" :disabled="store.messagesLoading"><AppIcon name="search" :size="18" /></button>
+    <form class="message-searches" role="search" aria-label="Buscar mensajes" @submit.prevent="searchMessages">
+      <div class="search-bar">
+        <label class="sr-only" for="message-search">Buscar por código</label>
+        <input
+          id="message-search"
+          v-model="search"
+          type="search"
+          placeholder="Buscar por código (ej. MSG_WELCOME)…"
+        />
+        <button type="submit" class="search-submit" aria-label="Buscar por código" :disabled="store.messagesLoading"><AppIcon name="search" :size="18" /></button>
+      </div>
+      <div class="search-bar">
+        <label class="sr-only" for="message-title-search">Buscar por título</label>
+        <input
+          id="message-title-search"
+          v-model="titleSearch"
+          type="search"
+          placeholder="Buscar por título…"
+        />
+        <button type="submit" class="search-submit" aria-label="Buscar por título" :disabled="store.messagesLoading"><AppIcon name="search" :size="18" /></button>
+      </div>
     </form>
     <div class="filter-grid message-filters">
       <label>Organización<input :value="store.activeContext?.organizationName" readonly /></label>
@@ -143,7 +168,12 @@ function prev() {
           <th>Funcionalidad</th>
           <th>Ambientes</th>
           <th>Estado</th>
-          <th>Última modificación</th>
+          <th scope="col" :aria-sort="updatedAtSort">
+            <button type="button" class="table-sort" :title="sortAction" :aria-label="`Última modificación: ${sortAction}`" :disabled="store.messagesLoading" @click="store.toggleMessagesUpdatedAtSort">
+              Última modificación
+              <AppIcon :name="updatedAtSort === 'none' ? 'sort' : (updatedAtSort === 'ascending' ? 'up' : 'down')" :size="14" />
+            </button>
+          </th>
           <th class="align-right">Acciones</th>
         </tr>
       </thead>
@@ -166,7 +196,7 @@ function prev() {
       </tbody>
     </table></div>
     <p v-if="deleteError" class="alert error" role="alert">{{ deleteError }}</p>
-    <EmptyState v-if="!store.messagesLoading && !store.messagesError && !store.messages.length" :title="store.messageSearch || store.environmentFilter.length || state || functionality ? 'No encontramos mensajes' : 'Tu primer mensaje está por llegar'" description="Crea un mensaje o ajusta los filtros para ver otros resultados."><button @click="emit('create')"><AppIcon name="plus" :size="16" />Crear mensaje</button></EmptyState>
+    <EmptyState v-if="!store.messagesLoading && !store.messagesError && !store.messages.length" :title="store.messageSearch || store.messageTitleSearch || store.environmentFilter.length || state || functionality ? 'No encontramos mensajes' : 'Tu primer mensaje está por llegar'" description="Crea un mensaje o ajusta los filtros para ver otros resultados."><button @click="emit('create')"><AppIcon name="plus" :size="16" />Crear mensaje</button></EmptyState>
 
     <div v-if="!store.messagesLoading && (store.totalMessages > 0 || store.messages.length > 0)" class="pagination">
       <span>{{ store.totalMessages || store.messages.length }} resultados</span>
