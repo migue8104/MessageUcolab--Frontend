@@ -1,7 +1,13 @@
 <script setup>
-import { ref, computed } from 'vue'
-import { messageApi, toMessageCode } from '../api'
+import { ref, computed, watch } from 'vue'
+import { catalogApi, messageApi, toMessageCode } from '../api'
 import { store } from '../store'
+import { statusName, formatDate } from '../presentation'
+import PageHeader from './ui/PageHeader.vue'
+import EmptyState from './ui/EmptyState.vue'
+import AppIcon from './ui/AppIcon.vue'
+import EnvironmentBadge from './ui/EnvironmentBadge.vue'
+import StatusBadge from './ui/StatusBadge.vue'
 
 // Calcula las páginas totales combinando lo que dice el backend con lo que se puede inferir.
 // Si la página actual está llena (tiene messagesSize ítems), hay al menos una página más.
@@ -11,12 +17,12 @@ const effectiveTotalPages = computed(() => {
     ? Math.ceil(store.totalMessages / store.messagesSize)
     : 0
   const base = Math.max(1, fromBackend, fromCount)
-  return store.messages.length >= store.messagesSize
+  return !fromBackend && !fromCount && store.messages.length >= store.messagesSize
     ? Math.max(base, store.messagesPage + 1)
     : base
 })
 
-const emit = defineEmits(['view', 'create', 'edit'])
+const emit = defineEmits(['view', 'create'])
 
 const deleteError = ref('')
 const deleteLoading = ref('')
@@ -38,7 +44,41 @@ async function confirmDelete(message) {
   }
 }
 
-const search = ref('')
+const search = ref(store.messageSearch)
+const functionalities = ref([])
+const functionalitiesLoading = ref(false)
+const functionalitiesError = ref('')
+const state = computed({
+  get: () => store.messageStatusFilter,
+  set: (statusId) => store.setMessageFilters({ statusId })
+})
+const functionality = computed({
+  get: () => store.functionalityFilter,
+  set: (functionalityId) => store.setMessageFilters({ functionalityId })
+})
+
+watch(() => store.activeContext?.applicationId, async (applicationId, _previous, onCleanup) => {
+  let current = true
+  onCleanup(() => { current = false })
+  functionalities.value = []
+  functionalitiesError.value = ''
+  functionalitiesLoading.value = !!applicationId
+  if (!applicationId) return
+  try {
+    const list = await catalogApi.functionalities(applicationId)
+    if (current) functionalities.value = list
+  } catch (e) {
+    store.handleUnauthorized(e)
+    if (current) functionalitiesError.value = e.message
+  } finally {
+    if (current) functionalitiesLoading.value = false
+  }
+}, { immediate: true })
+
+async function clearFilters() {
+  search.value = ''
+  await store.setMessageFilters({ code: '', statusId: '', functionalityId: '', environmentIds: [] })
+}
 
 // Vacío = todos los ambientes de la aplicación.
 const selectedEnvironments = computed({
@@ -47,23 +87,8 @@ const selectedEnvironments = computed({
 })
 
 async function searchCode() {
-  const code = toMessageCode(search.value)
-  if (!code) {
-    store.messageSearch = ''
-    return store.loadMessages(false, 1)
-  }
-  store.messageSearch = code
-  try {
-    const data = await messageApi.byCode(code)
-    store.messages = (Array.isArray(data) ? data : data && data.data ? data.data : []).slice(0, 1)
-    store.totalMessages = store.messages.length
-    store.totalPages = 1
-    store.messagesPage = 1
-  } catch (e) {
-    store.handleUnauthorized(e)
-    store.messagesError = e.message
-    store.messages = []
-  }
+  if (store.messagesLoading) return
+  await store.setMessageFilters({ code: toMessageCode(search.value) })
 }
 
 function next() {
@@ -77,145 +102,88 @@ function prev() {
 
 <template>
   <section class="card">
-    <div class="toolbar">
-      <h2>Mensajes</h2>
-      <button @click="emit('create')">+ Crear mensaje</button>
-    </div>
-
-    <div class="toolbar">
+    <PageHeader title="Mensajes" description="Consulta, filtra y gestiona todos los mensajes registrados."><button @click="emit('create')"><AppIcon name="plus" :size="17" />Crear mensaje</button></PageHeader>
+    <form class="search-bar" @submit.prevent="searchCode">
+      <label class="sr-only" for="message-search">Buscar por código</label>
       <input
+        id="message-search"
         v-model="search"
         placeholder="Buscar por código (ej. MSG_WELCOME)…"
-        @keyup.enter="searchCode"
       />
-      <button :disabled="!search.trim() || store.messagesLoading" @click="searchCode">Buscar</button>
-    </div>
-
-    <div v-if="store.environments.length" class="env-filter" role="group" aria-label="Filtrar por ambiente">
-      <span class="env-filter-label">Ambientes:</span>
-      <label v-for="env in store.environments" :key="env.id" class="env-option">
-        <input v-model="selectedEnvironments" type="checkbox" :value="env.id" />
-        {{ env.name }}
+      <button type="submit" class="search-submit" aria-label="Buscar mensaje" :disabled="store.messagesLoading"><AppIcon name="search" :size="18" /></button>
+    </form>
+    <div class="filter-grid message-filters">
+      <label>Organización<input :value="store.activeContext?.organizationName" readonly /></label>
+      <label>Aplicación<input :value="store.activeContext?.applicationName" readonly /></label>
+      <div class="field"><span id="environment-filter-label">Ambientes</span><details class="filter-dropdown"><summary aria-labelledby="environment-filter-label">{{ store.environmentFilter.length ? `${store.environmentFilter.length} seleccionados` : 'Todos' }}<AppIcon name="down" :size="14" /></summary><div class="filter-options"><label><input type="checkbox" :checked="!store.environmentFilter.length" @change="store.setEnvironmentFilter([])" />Todos</label><label v-for="env in store.environments" :key="env.id"><input v-model="selectedEnvironments" type="checkbox" :value="env.id" />{{ env.name }}</label></div></details></div>
+      <label>Estado
+        <select v-model="state" :disabled="store.catalogsLoading || !store.states.length">
+          <option value="">Todos</option>
+          <option v-for="item in store.states" :key="item.value" :value="item.value">{{ item.name }}</option>
+        </select>
       </label>
-      <small class="info">{{ store.environmentFilter.length ? '' : 'Mostrando todos' }}</small>
+      <label>Funcionalidad
+        <select v-model="functionality" :disabled="functionalitiesLoading || !!functionalitiesError">
+          <option value="">{{ functionalitiesLoading ? 'Cargando…' : 'Todas' }}</option>
+          <option v-for="item in functionalities" :key="item.id" :value="item.id">{{ item.name }}</option>
+        </select>
+      </label>
+      <button class="soft clear-filters" :disabled="store.messagesLoading" @click="clearFilters"><AppIcon name="reset" :size="16" />Limpiar filtros</button>
     </div>
 
-    <p v-if="store.messagesLoading" class="info">Cargando mensajes… (la consulta puede tardar 2-3 s)</p>
-    <p v-if="store.messagesError" class="err">{{ store.messagesError }}</p>
+    <p v-if="store.messagesLoading" class="loading-state" role="status">Cargando mensajes…</p>
+    <p v-if="functionalitiesError || store.catalogsError" class="alert error" role="alert">{{ functionalitiesError || store.catalogsError }}</p>
+    <p v-if="store.messagesError" class="alert error" role="alert">{{ store.messagesError }}</p>
 
-    <table v-if="store.messages.length">
+    <div v-if="store.messages.length" class="table-scroll"><table>
       <thead>
         <tr>
           <th>Código</th>
           <th>Título</th>
-          <th>Contenido</th>
-          <th>Tipo</th>
-          <th>Categoría</th>
           <th>Funcionalidad</th>
           <th>Ambientes</th>
-          <th></th>
+          <th>Estado</th>
+          <th>Última modificación</th>
+          <th class="align-right">Acciones</th>
         </tr>
       </thead>
       <tbody>
         <tr v-for="m in store.messages" :key="m.code">
-          <td>{{ m.code }}</td>
+          <td><button class="link message-code" @click="emit('view', m.code)">{{ m.code }}</button></td>
           <td>{{ m.title }}</td>
-          <td>{{ m.content }}</td>
-          <td>{{ m.type }}</td>
-          <td>{{ m.category }}</td>
           <td>{{ m.functionality }}</td>
           <td>
-            <span v-for="env in m.environments || []" :key="env.id" class="badge ok env-badge">{{ env.name }}</span>
+            <span class="badge-list"><EnvironmentBadge v-for="env in m.environments || []" :key="env.id" :name="env.name" /></span>
           </td>
-          <td class="actions-cell">
-            <button class="icon-btn" title="Ver" @click="emit('view', m.code)">
-              <i class="bi bi-eye"></i>
-            </button>
-            <button class="icon-btn edit" title="Editar" @click="emit('edit', m)">
-              <i class="bi bi-pencil"></i>
-            </button>
-            <button
-              class="icon-btn danger"
-              title="Eliminar"
-              :disabled="deleteLoading === m.code"
-              @click="confirmDelete(m)"
-            >
-              <i v-if="deleteLoading !== m.code" class="bi bi-trash"></i>
-              <i v-else class="bi bi-hourglass-split"></i>
+          <td><StatusBadge :status="statusName(m)" /></td>
+          <td class="date-cell">{{ formatDate(m.updatedAt) }}</td>
+          <td class="align-right">
+            <button type="button" class="link danger" :aria-label="`Eliminar ${m.code}`" :disabled="deleteLoading === m.code" @click="confirmDelete(m)">
+              <AppIcon name="trash" :size="15" />{{ deleteLoading === m.code ? 'Eliminando…' : 'Eliminar' }}
             </button>
           </td>
         </tr>
       </tbody>
-    </table>
-    <p v-if="deleteError" class="err">{{ deleteError }}</p>
-    <p v-else-if="!store.messagesLoading && !store.messagesError && !store.messages.length" class="info">
-      {{ store.environmentFilter.length ? 'Sin mensajes en los ambientes seleccionados.' : 'Sin mensajes registrados.' }}
-    </p>
+    </table></div>
+    <p v-if="deleteError" class="alert error" role="alert">{{ deleteError }}</p>
+    <EmptyState v-if="!store.messagesLoading && !store.messagesError && !store.messages.length" :title="store.messageSearch || store.environmentFilter.length || state || functionality ? 'No encontramos mensajes' : 'Tu primer mensaje está por llegar'" description="Crea un mensaje o ajusta los filtros para ver otros resultados."><button @click="emit('create')"><AppIcon name="plus" :size="16" />Crear mensaje</button></EmptyState>
 
-    <div v-if="!store.messagesLoading && (store.totalMessages > 0 || store.messages.length > 0)" class="toolbar pagination">
+    <div v-if="!store.messagesLoading && (store.totalMessages > 0 || store.messages.length > 0)" class="pagination">
+      <span>{{ store.totalMessages || store.messages.length }} resultados</span>
+      <div class="pagination-controls">
       <label class="page-size">
         Por página:
-        <select :value="store.messagesSize" @change="store.changePageSize(Number($event.target.value))">
+        <select :value="store.messagesSize" :disabled="store.messagesLoading" @change="store.changePageSize(Number($event.target.value))">
           <option v-for="s in [5, 10, 20, 50]" :key="s" :value="s">{{ s }}</option>
         </select>
       </label>
-      <button :disabled="store.messagesPage <= 1 || store.messagesLoading" @click="prev">← Anterior</button>
+      <button class="secondary icon-button" aria-label="Página anterior" :disabled="store.messagesPage <= 1 || store.messagesLoading" @click="prev"><AppIcon name="back" :size="16" /></button>
       <span class="page-info">
         Página {{ store.messagesPage }} de {{ effectiveTotalPages }}
         <template v-if="store.totalMessages > 0"> · {{ store.totalMessages }} mensajes</template>
       </span>
-      <button :disabled="store.messagesPage >= effectiveTotalPages || store.messagesLoading" @click="next">Siguiente →</button>
+      <button class="secondary icon-button" aria-label="Página siguiente" :disabled="store.messagesPage >= effectiveTotalPages || store.messagesLoading" @click="next"><AppIcon name="arrow" :size="16" /></button>
+      </div>
     </div>
   </section>
 </template>
-
-<style scoped>
-.pagination { flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; margin-top: 8px; }
-.page-size { display: flex; align-items: center; gap: 6px; font-size: 0.875rem; color: #6b7280; margin-right: auto; }
-.page-size select { padding: 3px 6px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.875rem; }
-.page-info { font-size: 0.875rem; color: #6b7280; }
-.actions-cell { display: flex; gap: 4px; align-items: center; }
-.icon-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 4px 6px;
-  border-radius: 4px;
-  font-size: 1rem;
-  color: #6b7280;
-  transition: background 0.15s, color 0.15s;
-}
-.icon-btn:hover { background: #f3f4f6; color: #111827; }
-.icon-btn.edit { color: #2563eb; }
-.icon-btn.edit:hover { background: #eff6ff; color: #1d4ed8; }
-.icon-btn.danger { color: #dc2626; }
-.icon-btn.danger:hover { background: #fef2f2; color: #b91c1c; }
-.icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
-.env-filter {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 16px;
-  margin: 0 0 12px;
-}
-
-.env-filter-label {
-  font-weight: 700;
-}
-
-.env-option {
-  display: inline-flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 6px;
-}
-
-.env-option input {
-  width: auto;
-}
-
-.env-badge {
-  margin: 0 4px 4px 0;
-}
-</style>

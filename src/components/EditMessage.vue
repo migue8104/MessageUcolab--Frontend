@@ -1,7 +1,10 @@
 <script setup>
-import { ref, reactive, watch, onMounted, computed } from 'vue'
+import { ref, reactive, watch, onMounted, onBeforeUnmount, computed } from 'vue'
 import { catalogApi, messageApi } from '../api'
 import { store } from '../store'
+import { validateMessageFields } from '../messageForm'
+import PageHeader from './ui/PageHeader.vue'
+import AppIcon from './ui/AppIcon.vue'
 
 const props = defineProps({
   message: { type: Object, required: true }
@@ -11,6 +14,9 @@ const emit = defineEmits(['updated', 'cancel'])
 const functionalities = ref([])
 const success = ref('')
 const formError = ref('')
+const saving = ref(false)
+let returnTimer
+onBeforeUnmount(() => clearTimeout(returnTimer))
 
 const form = reactive({
   title: '',
@@ -35,7 +41,8 @@ watch(
     const matchState = store.states.find((s) => s.name === msg.status)
     form.typeId = matchType?.value || (store.types[0]?.value ?? '')
     form.categoryId = matchCat?.value || (store.categories[0]?.value ?? '')
-    form.statusId = matchState?.value || (store.states[0]?.value ?? '')
+    form.statusId = msg.statusId || matchState?.value || (store.states[0]?.value ?? '')
+    form.functionalityId = msg.functionalityId || ''
   },
   { immediate: true }
 )
@@ -60,8 +67,10 @@ async function loadFunctionalities() {
 onMounted(loadFunctionalities)
 
 async function updateMessage() {
+  if (saving.value || success.value) return
   success.value = ''
-  formError.value = ''
+  formError.value = validateMessageFields(form)
+  if (formError.value) return
 
   const payload = {
     title: form.title,
@@ -72,82 +81,75 @@ async function updateMessage() {
     functionalityId: form.functionalityId
   }
 
+  saving.value = true
   try {
     await messageApi.update(props.message.code, payload)
     success.value = 'Mensaje actualizado exitosamente'
     emit('updated')
-    setTimeout(() => emit('cancel'), 800)
+    returnTimer = setTimeout(() => emit('cancel'), 800)
   } catch (e) {
     store.handleUnauthorized(e)
     formError.value = e.message
+  } finally {
+    saving.value = false
   }
 }
 </script>
 
 <template>
   <section class="card">
-    <h2>Editar mensaje — <code>{{ message.code }}</code></h2>
-
+    <PageHeader title="Editar mensaje" :description="`Actualiza el contenido y la clasificación de ${message.code}.`" />
+    <form @submit.prevent="updateMessage">
+    <fieldset :disabled="saving || !!success">
     <div class="grid">
       <label>
         Tipo *
-        <select v-model="form.typeId">
+        <select v-model="form.typeId" required>
           <option v-for="t in store.types" :key="t.value" :value="t.value">{{ t.name }}</option>
         </select>
       </label>
       <label>
         Categoría *
-        <select v-model="form.categoryId">
+        <select v-model="form.categoryId" required>
           <option v-for="c in store.categories" :key="c.value" :value="c.value">{{ c.name }}</option>
         </select>
       </label>
       <label>
         Estado *
-        <select v-model="form.statusId">
+        <select v-model="form.statusId" required>
           <option v-for="s in store.states" :key="s.value" :value="s.value">{{ s.name }}</option>
         </select>
       </label>
       <label>
         Funcionalidad *
-        <select v-model="form.functionalityId" :disabled="!functionalities.length">
+        <select v-model="form.functionalityId" required :disabled="!functionalities.length">
           <option value="">Seleccionar…</option>
           <option v-for="f in functionalities" :key="f.id" :value="f.id">{{ f.name }}</option>
         </select>
       </label>
     </div>
 
-    <div class="grid">
+    <div class="form-grid two">
       <label>
         Título * (10 a 50)
-        <input v-model="form.title" placeholder="Credenciales incorrectas" />
+        <input v-model="form.title" required minlength="10" maxlength="50" placeholder="Credenciales incorrectas" />
         <small>{{ titleCount }}/50 caracteres</small>
       </label>
-      <label class="full">
+      <label>
         Contenido * (10 a 100)
-        <textarea v-model="form.content" rows="3"></textarea>
+        <textarea v-model="form.content" required minlength="10" maxlength="100" rows="3"></textarea>
         <small>{{ contentCount }}/100 caracteres</small>
       </label>
     </div>
 
-    <p v-if="formError" class="err">{{ formError }}</p>
-    <p v-if="success" class="ok" style="font-weight:700">{{ success }}</p>
+    </fieldset>
+    <p v-if="formError" class="alert error" role="alert">{{ formError }}</p>
+    <p v-if="success" class="alert success" role="status">{{ success }}</p>
 
-    <div class="toolbar">
-      <button class="ghost" @click="emit('cancel')">Cancelar</button>
-      <button @click="updateMessage">Guardar cambios</button>
+    <div class="form-actions">
+      <button type="button" class="secondary" :disabled="saving" @click="emit('cancel')">Cancelar</button>
+      <button type="submit" :disabled="saving || !!success"><AppIcon name="check" :size="16" />{{ saving ? 'Guardando…' : 'Guardar cambios' }}</button>
     </div>
+    </form>
   </section>
 </template>
-
-<style scoped>
-button.ghost {
-  background: #f3f4f6;
-  color: #374151;
-}
-code {
-  font-size: 0.85em;
-  background: #f3f4f6;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-</style>
