@@ -126,10 +126,13 @@ export const messageApi = {
   createFunctionality: (payload) =>
     request('/v1/application/functionality', { method: 'POST', body: payload }),
 
-  list: (page, size, environmentIds = [], { code = '', statusId = '', functionalityId = '' } = {}) => {
-    const query = new URLSearchParams({ page, size, sort: 'ASC', columnSort: 'code' })
+  list: (page, size, environmentIds = [], {
+    code = '', title = '', statusId = '', functionalityId = '', sort = 'ASC', columnSort = 'code'
+  } = {}) => {
+    const query = new URLSearchParams({ page, size, sort, columnSort })
     if (environmentIds.length) query.set('filterEnvironments', environmentIds.join(','))
     if (code) query.set('filterCode', code)
+    if (title) query.set('filterTitle', title)
     if (statusId) query.set('filterStatusId', statusId)
     if (functionalityId) query.set('filterFunctionalityId', functionalityId)
     return request(`/v1/messages?${query}`, {
