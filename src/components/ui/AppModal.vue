@@ -1,7 +1,7 @@
 <script setup>
 import { onMounted, onBeforeUnmount, ref } from 'vue'
 import AppIcon from './AppIcon.vue'
-defineProps({ title: { type: String, required: true }, description: { type: String, default: '' }, busy: Boolean })
+defineProps({ title: { type: String, required: true }, description: { type: String, default: '' }, busy: Boolean, wide: Boolean })
 const emit = defineEmits(['close'])
 const dialog = ref(null)
 let previousFocus
@@ -27,7 +27,7 @@ onBeforeUnmount(() => {
 
 <template>
   <Teleport to="body">
-    <dialog ref="dialog" class="app-modal business-ui" aria-labelledby="app-modal-title" :aria-busy="busy" @cancel.prevent="!busy && emit('close')" @click="!busy && onBackdrop($event)">
+    <dialog ref="dialog" class="app-modal business-ui" :class="{ 'app-modal-wide': wide }" aria-labelledby="app-modal-title" :aria-busy="busy" @cancel.prevent="!busy && emit('close')" @click="!busy && onBackdrop($event)">
       <header class="modal-heading"><div><h2 id="app-modal-title">{{ title }}</h2><p v-if="description">{{ description }}</p></div><button type="button" class="icon-button" aria-label="Cerrar" :disabled="busy" @click="emit('close')"><AppIcon name="close" /></button></header>
       <slot />
     </dialog>

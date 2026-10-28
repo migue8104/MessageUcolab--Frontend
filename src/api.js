@@ -1,4 +1,5 @@
 import { confirmProtectedAccess, recoverUnauthorized, sessionRecovery } from './security/session'
+import { environmentName } from './presentation'
 
 const API_ORIGIN = import.meta.env.VITE_API_URL?.replace(/\/+$/, '')
 const API_PATH = '/messageucolab'
@@ -31,20 +32,48 @@ class ApiError extends Error {
   }
 }
 
-async function request(path, { method = 'GET', body, base = BASE, includeEnvelope = false } = {}) {
+function httpErrorMessage(status) {
+  const messages = {
+    400: 'La solicitud no es válida.', 401: 'Debes iniciar sesión para continuar.',
+    403: 'No tienes permiso para realizar esta operación.', 404: 'No se encontró el recurso solicitado.',
+    405: 'Esta operación no está permitida para el recurso.', 406: 'El formato solicitado no está disponible.',
+    409: 'La operación entra en conflicto con los datos actuales.', 413: 'El archivo supera el tamaño permitido.',
+    415: 'El formato enviado no está admitido.', 422: 'Revisa los datos enviados antes de continuar.',
+    429: 'Hay demasiadas solicitudes. Espera un momento e inténtalo de nuevo.',
+    500: 'Ocurrió un error interno al procesar la solicitud.', 502: 'No fue posible comunicarse con el servicio.',
+    503: 'El servicio no está disponible en este momento.', 504: 'El servicio tardó demasiado en responder.'
+  }
+  return messages[status] || `No se pudo completar la solicitud (HTTP ${status}).`
+}
+
+function serverErrorMessage(message, status, code) {
+  if (code === 'TOKEN_INVALID') return 'La credencial de acceso no es válida. Inicia sesión nuevamente.'
+  const standardMessages = ['Unauthorized', 'Forbidden', 'Access Denied', 'Not Found', 'Bad Request',
+    'Internal Server Error', 'Service Unavailable', 'Not Acceptable', 'Unsupported Media Type']
+  return !message || standardMessages.includes(message) ? httpErrorMessage(status) : message
+}
+
+async function request(path, { method = 'GET', body, base = BASE, includeEnvelope = false, download = false, applicationId = requestContext.applicationId } = {}) {
   if (sessionRecovery.status !== 'idle') {
     throw new ApiError(sessionRecovery.message, { status: 401, code: 'SESSION_RECOVERY_REQUIRED' })
   }
-  const headers = { Accept: 'application/json', ...contextHeaders() }
-  if (body) headers['Content-Type'] = 'application/json'
+  const multipart = body instanceof FormData
+  const headers = { Accept: download ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/json' : 'application/json' }
+  if (applicationId) headers['X-Application-Id'] = applicationId
+  if (body && !multipart) headers['Content-Type'] = 'application/json'
 
-  const res = await fetch(base + path, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-    credentials: 'include',
-    cache: 'no-store'
-  })
+  let res
+  try {
+    res = await fetch(base + path, {
+      method,
+      headers,
+      body: body ? multipart ? body : JSON.stringify(body) : undefined,
+      credentials: 'include',
+      cache: 'no-store'
+    })
+  } catch {
+    throw new ApiError('No fue posible conectar con el servicio. Revisa tu conexión e inténtalo de nuevo.')
+  }
 
   if (res.status === 401) {
     await recoverUnauthorized()
@@ -52,6 +81,10 @@ async function request(path, { method = 'GET', body, base = BASE, includeEnvelop
     throw new ApiError(sessionRecovery.message, { status: 401, code: 'SESSION_RECOVERY_REQUIRED' })
   }
 
+  if (download && res.ok) {
+    confirmProtectedAccess()
+    return res.blob()
+  }
   const text = await res.text()
   let json = null
   if (text) {
@@ -66,14 +99,14 @@ async function request(path, { method = 'GET', body, base = BASE, includeEnvelop
 
   const firstError = Array.isArray(json?.errors) ? json.errors[0] : null
   if (firstError) {
-    throw new ApiError(firstError.message || res.statusText || `HTTP ${res.status}`, {
+    throw new ApiError(serverErrorMessage(firstError.message, res.status, firstError.code), {
       status: res.status,
       code: firstError.code
     })
   }
   if (!res.ok) {
     // Conserva el detalle del PEP/PDP (por ejemplo TOKEN_INVALID) para mostrarlo al usuario.
-    throw new ApiError(json?.detail || json?.message || res.statusText || `HTTP ${res.status}`, {
+    throw new ApiError(serverErrorMessage(json?.detail || json?.message, res.status, json?.code), {
       status: res.status,
       code: json?.code
     })
@@ -96,7 +129,10 @@ export function toMessageCode(raw) {
 
 export const catalogApi = {
   applications: () => request('/v1/catalog/applications'),
-  environments: (appId) => request(`/v1/catalog/applications/${appId}/environments`),
+  environments: async (appId) => {
+    const result = await request(`/v1/catalog/applications/${appId}/environments`)
+    return Array.isArray(result) ? result.map((env) => ({ ...env, name: environmentName(env.name) })) : result
+  },
   functionalities: (appId) => request(`/v1/catalog/applications/${appId}/functionalities`),
   messageTypes: () => request('/v1/catalog/message-types'),
   messageCategories: () => request('/v1/catalog/message-categories'),
@@ -116,6 +152,22 @@ export const workspaceApi = {
     request(`/v1/organizations/${encodeURIComponent(organizationId)}/applications`)
 }
 
+export const messageImportApi = {
+  template: () => request('/v1/messages/imports/template', { download: true }),
+  validate: (file, environmentIds) => {
+    const body = new FormData()
+    body.append('file', file)
+    const query = new URLSearchParams({ environmentIds: environmentIds.join(',') })
+    return request(`/v1/messages/imports/validate?${query}`, { method: 'POST', body })
+  },
+  preview: (id) => request(`/v1/messages/imports/${encodeURIComponent(id)}`),
+  result: (id) => request(`/v1/messages/imports/${encodeURIComponent(id)}/result`),
+  report: (id) => request(`/v1/messages/imports/${encodeURIComponent(id)}/errors`, { download: true }),
+  confirm: (id, productionConfirmed) => request(`/v1/messages/imports/${encodeURIComponent(id)}/confirm`, {
+    method: 'POST', body: { productionConfirmed }
+  })
+}
+
 export const messageApi = {
   create: (payload) =>
     request('/v1/messages', { method: 'POST', body: payload }),
@@ -127,7 +179,7 @@ export const messageApi = {
     request('/v1/application/functionality', { method: 'POST', body: payload }),
 
   list: (page, size, environmentIds = [], {
-    code = '', title = '', statusId = '', functionalityId = '', sort = 'ASC', columnSort = 'code'
+    code = '', title = '', statusId = '', functionalityId = '', sort = 'ASC', columnSort = 'code', applicationId
   } = {}) => {
     const query = new URLSearchParams({ page, size, sort, columnSort })
     if (environmentIds.length) query.set('filterEnvironments', environmentIds.join(','))
@@ -136,7 +188,8 @@ export const messageApi = {
     if (statusId) query.set('filterStatusId', statusId)
     if (functionalityId) query.set('filterFunctionalityId', functionalityId)
     return request(`/v1/messages?${query}`, {
-      includeEnvelope: true
+      includeEnvelope: true,
+      applicationId
     })
   },
 
@@ -156,8 +209,16 @@ export const messageApi = {
       body: payload
     }),
 
-  remove: (code) =>
+  updateEnvironments: (code, environmentIds, applicationId) =>
     request(`/v1/messages/${encodeURIComponent(code)}`, {
-      method: 'DELETE'
+      method: 'PUT',
+      applicationId,
+      body: { environmentsOnly: true, environmentIds: [...environmentIds] }
+    }),
+
+  remove: (code, applicationId) =>
+    request(`/v1/messages/${encodeURIComponent(code)}`, {
+      method: 'DELETE',
+      applicationId
     })
 }

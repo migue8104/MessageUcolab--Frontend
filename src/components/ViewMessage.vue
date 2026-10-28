@@ -2,7 +2,7 @@
 import { ref, watch } from 'vue'
 import { messageApi, toMessageCode } from '../api'
 import { store } from '../store'
-import { statusName, formatDate } from '../presentation'
+import { statusName, formatDate, catalogLabel } from '../presentation'
 import PageHeader from './ui/PageHeader.vue'
 import AppIcon from './ui/AppIcon.vue'
 import EmptyState from './ui/EmptyState.vue'
@@ -49,7 +49,7 @@ watch(() => props.code, (value) => {
     <PageHeader title="Consultar mensaje por código" description="Busca y visualiza la información completa de un mensaje." />
     <form class="lookup-bar" @submit.prevent="load">
       <label class="sr-only" for="lookup-code">Código del mensaje</label>
-      <input id="lookup-code" v-model="inputCode" placeholder="Código del mensaje (ej. MSG_WELCOME)" />
+      <input id="lookup-code" v-model="inputCode" placeholder="Código del mensaje (ej. MSG_BIENVENIDA)" />
       <button type="submit" :disabled="!inputCode.trim() || loading">
         <AppIcon name="search" :size="16" />{{ loading ? 'Consultando…' : 'Consultar' }}
       </button>
@@ -66,8 +66,8 @@ watch(() => props.code, (value) => {
           <div><dt>Organización</dt><dd>{{ store.activeContext?.organizationName }}</dd></div>
           <div><dt>Aplicación</dt><dd>{{ store.activeContext?.applicationName }}</dd></div>
           <div><dt>Funcionalidad</dt><dd>{{ result.functionality }}</dd></div>
-          <div><dt>Tipo</dt><dd>{{ result.type }}</dd></div>
-          <div><dt>Categoría</dt><dd>{{ result.category }}</dd></div>
+          <div><dt>Tipo</dt><dd>{{ catalogLabel(result.type) }}</dd></div>
+          <div><dt>Categoría</dt><dd>{{ catalogLabel(result.category) }}</dd></div>
         </dl>
         <dl class="detail-list">
           <div>

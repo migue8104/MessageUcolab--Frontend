@@ -11,6 +11,7 @@ const root = new URL('../src/', import.meta.url)
 async function loadStore(fetchImpl) {
   const context = vm.createContext({
     fetch: fetchImpl,
+    FormData: globalThis.FormData,
     URLSearchParams,
     localStorage: { setItem() {}, removeItem() {} },
     setTimeout,
@@ -27,19 +28,24 @@ async function loadStore(fetchImpl) {
       this.setExport('sessionRecovery', { status: 'idle', message: '' })
     }, { context }
   )
+  const presentation = new vm.SyntheticModule(['environmentName', 'catalogLabel'], function initialize() {
+    this.setExport('environmentName', (name) => name)
+    this.setExport('catalogLabel', (item) => item?.name || item?.label || '')
+  }, { context })
   const apiSource = await readFile(new URL('api.js', root), 'utf8')
   const api = new vm.SourceTextModule(apiSource, {
     context,
     identifier: 'api.js',
     initializeImportMeta(meta) { meta.env = { DEV: true, VITE_API_URL: '' } }
   })
-  await api.link(async (specifier) => specifier === 'vue' ? vue : session)
+  await api.link(async (specifier) => specifier === 'vue' ? vue : specifier === './presentation' ? presentation : session)
   await api.evaluate()
   const storeSource = await readFile(new URL('store.js', root), 'utf8')
   const storeModule = new vm.SourceTextModule(storeSource, { context, identifier: 'store.js' })
   await storeModule.link(async (specifier) => {
     if (specifier === 'vue') return vue
     if (specifier === './api') return api
+    if (specifier === './presentation') return presentation
     return session
   })
   await storeModule.evaluate()

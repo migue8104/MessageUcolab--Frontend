@@ -1,7 +1,8 @@
 <script setup>
 import { computed } from 'vue'
+import { catalogLabel } from '../../presentation'
 const props = defineProps({ status: { type: [String, Object], default: '' } })
-const name = computed(() => typeof props.status === 'object' ? props.status?.name || '' : props.status)
+const name = computed(() => catalogLabel(props.status))
 const kind = computed(() => /^(active|activo|activa)$/i.test(name.value) ? 'active' : /^(inactive|inactivo|inactiva)$/i.test(name.value) ? 'inactive' : 'neutral')
 </script>
 

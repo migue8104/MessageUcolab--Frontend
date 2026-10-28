@@ -118,9 +118,9 @@ async function onCatalogCreated() {
 
 onMounted(() => {
   mobileQuery.addEventListener('change', onViewportChange)
-  if (isSecurityRoute || !hasAccess.value) return
+  if (!hasAccess.value) return
 
-  store.loadSessionApplications()
+  store.loadSessionApplications({ loadWorkspace: !isSecurityRoute })
 })
 
 function handleMessageEvent({ event, data }) {
@@ -216,13 +216,23 @@ onBeforeUnmount(() => {
         </div>
         <div class="bar-actions">
           <button v-if="hasAccess" class="ctx-pill" title="Cambiar organización o aplicación" aria-label="Cambiar organización o aplicación" @click="onChangeContext"><AppIcon name="building" :size="15" /><span>{{ activeContext ? `${activeContext.organizationName} / ${activeContext.applicationName}` : store.activeOrganization?.name || 'Mis organizaciones' }}</span><AppIcon name="down" :size="13" /></button>
-          <details v-if="hasAccess" class="user-menu"><summary><span class="user-avatar">{{ userInitial }}</span><span class="user-email">{{ store.workspaceUser?.email || 'Sesión activa' }}</span><AppIcon name="down" :size="13" /></summary><div class="user-dropdown"><strong>{{ store.workspaceUser?.name || 'Mi cuenta' }}</strong><span>{{ store.workspaceUser?.email }}</span><span class="session-label"><i />Sesión activa</span><button class="link" @click="onChangeContext">Mis organizaciones<AppIcon name="arrow" :size="15" /></button></div></details>
-          <span v-else class="badge warn">Sin autenticar</span>
+          <details v-if="hasAccess" class="user-menu">
+            <summary><span class="user-avatar">{{ userInitial }}</span><span class="user-email">{{ store.workspaceUser?.email || 'Sesión activa' }}</span><AppIcon name="down" :size="13" /></summary>
+            <div class="user-dropdown">
+              <strong>{{ store.workspaceUser?.name || 'Mi cuenta' }}</strong>
+              <span>{{ store.workspaceUser?.email }}</span>
+              <span class="session-label"><i />Sesión activa</span>
+            </div>
+          </details>
+          <span v-else class="badge warn" role="status">Sin autenticar</span>
         </div>
       </header>
 
       <main class="workspace" :class="{ 'business-ui': !isSecurityRoute }" :inert="!hasAccess">
         <SecurityAdministrationPage v-if="isSecurityRoute && sessionRecovery.status === 'idle'" />
+        <section v-else-if="store.contextsLoading && !activeContext" class="card" role="status" aria-live="polite">
+          <p class="info">Recuperando tu espacio de trabajo…</p>
+        </section>
         <section v-else-if="!activeContext" class="auth-stage">
           <SessionApplicationSelect @selected="onContextSelected" />
         </section>
