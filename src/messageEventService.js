@@ -108,9 +108,9 @@ export function createMessageEventService({ onEvent, onStatus, onUnauthorized } 
           if (response.status === 401 && onUnauthorized) onUnauthorized()
           return
         }
-        throw new Error(`SSE request failed with HTTP ${response.status}`)
+        throw new Error(`La solicitud de eventos falló con el estado HTTP ${response.status}.`)
       }
-      if (!response.body) throw new Error('SSE response has no readable body')
+      if (!response.body) throw new Error('La respuesta de eventos no tiene un contenido legible.')
 
       reconnectAttempt = 0
       status('connected')

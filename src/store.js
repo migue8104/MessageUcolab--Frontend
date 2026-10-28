@@ -1,6 +1,7 @@
 import { reactive } from 'vue'
 import { catalogApi, messageApi, sessionApi, workspaceApi, setRequestContext } from './api'
 import { recoverUnauthorized } from './security/session'
+import { catalogLabel } from './presentation'
 
 // Seguridad autentica; MessageUcoLab valida la propiedad de organizaciones y aplicaciones.
 const CONTEXT_STORAGE_KEY = 'personalWorkspaceContext'
@@ -9,13 +10,13 @@ const CONTEXT_STORAGE_KEY = 'personalWorkspaceContext'
 // tal cual en la creación de mensajes. Fallback al nombre en minúsculas si no hay id.
 function toOptions(list) {
   return list.map((item) => ({
-    name: item.name,
+    name: catalogLabel(item.name),
     value: item.id && item.id !== '0' ? item.id : item.name.toLowerCase()
   }))
 }
 
 // Acepta el envelope paginado actual y el formato legado que envolvía la página en un arreglo.
-function unwrapPage(result) {
+export function unwrapPage(result) {
   const payload = result?.data ?? result
   if (Array.isArray(payload)) {
     const legacyPage = payload.find((item) => item && Array.isArray(item.data))
@@ -30,6 +31,14 @@ function unwrapPage(result) {
 }
 
 // Nunca mostrar datos de un contexto guardado antes de validar la sesion actual.
+function rememberedApplicationId() {
+  try {
+    const context = JSON.parse(localStorage.getItem(CONTEXT_STORAGE_KEY) || 'null')
+    return typeof context?.applicationId === 'string' ? context.applicationId : ''
+  } catch {
+    return ''
+  }
+}
 
 function unwrapList(data) {
   return Array.isArray(data) ? data : data && Array.isArray(data.data) ? data.data : []
@@ -67,7 +76,11 @@ export const store = reactive({
 
   handleUnauthorized(error) {
     if (error.status !== 401 && error.code !== 'UNAUTHORIZED') return
+    this.clearSession()
+    return recoverUnauthorized()
+  },
 
+  clearSession() {
     this.isAuthenticated = false
     this.clearSessionContext()
     this.workspaceUser = null
@@ -83,7 +96,6 @@ export const store = reactive({
     if (this.messageRefreshTimer) clearTimeout(this.messageRefreshTimer)
     this.messageRefreshTimer = null
     this.messageRefreshPending = null
-    return recoverUnauthorized()
   },
 
   // Catálogos globales (compartidos entre pestañas)
@@ -96,17 +108,17 @@ export const store = reactive({
 
   // Opciones fijas para catálogos sin endpoint dedicado (UUIDs del seed SurrealDB)
   languages: [
-    { value: '6319ca87-47b3-4e0e-994f-3166378988f2', name: 'English' },
-    { value: 'bed4d574-4c7f-4d95-bc12-6dbbcdbbf4fc', name: 'Spanish' },
-    { value: '8cc7ae54-db8c-4ef1-929b-22e17de58129', name: 'French' }
+    { value: '6319ca87-47b3-4e0e-994f-3166378988f2', name: 'Inglés' },
+    { value: 'bed4d574-4c7f-4d95-bc12-6dbbcdbbf4fc', name: 'Español' },
+    { value: '8cc7ae54-db8c-4ef1-929b-22e17de58129', name: 'Francés' }
   ],
   applicationStates: [
-    { value: 'dfb7a7cb-66f6-4b73-a1d8-803336f72ebe', name: 'Active' },
-    { value: '2a0ddacd-2dcc-47e2-b56f-03db5207c443', name: 'Inactive' }
+    { value: 'dfb7a7cb-66f6-4b73-a1d8-803336f72ebe', name: 'Activo' },
+    { value: '2a0ddacd-2dcc-47e2-b56f-03db5207c443', name: 'Inactivo' }
   ],
   functionalityStates: [
-    { value: '407de974-c8aa-43e2-a5cf-22dc7c44054b', name: 'Active' },
-    { value: '505cde87-96f2-4926-8dc6-b04529469bd3', name: 'Inactive' }
+    { value: '407de974-c8aa-43e2-a5cf-22dc7c44054b', name: 'Activo' },
+    { value: '505cde87-96f2-4926-8dc6-b04529469bd3', name: 'Inactivo' }
   ],
 
   // Lista de mensajes (página actual)
@@ -143,23 +155,26 @@ export const store = reactive({
     this.messagesLoading = false
   },
 
-  async loadSessionApplications() {
+  async loadSessionApplications({ loadWorkspace = true } = {}) {
     if (!this.isAuthenticated) return
     this.contextsLoading = true
     this.contextsError = ''
     try {
       const user = await sessionApi.user()
+      if (!this.isAuthenticated) return
       const [organizations, applications] = await Promise.all([
         workspaceApi.organizations(), sessionApi.applications()
       ])
+      if (!this.isAuthenticated) return
       this.workspaceUser = unwrapList(user)[0] || null
       this.organizations = unwrapList(organizations)
       this.sessionApplications = unwrapList(applications)
       const registered = this.sessionApplications.filter((app) => app.registered)
-      const current = this.activeContext
-        && registered.find((app) => app.id === this.activeContext.applicationId)
+      // Solo el id es una preferencia local: nombres, organizacion y propiedad vienen del servidor.
+      const applicationId = this.activeContext?.applicationId || rememberedApplicationId()
+      const current = registered.find((app) => app.id === applicationId)
       if (current) {
-        await this.selectSessionApplication(current)
+        await this.selectSessionApplication(current, { loadWorkspace })
       } else {
         this.clearSessionContext()
       }
@@ -205,7 +220,7 @@ export const store = reactive({
     await this.selectOrganization(organization)
   },
 
-  async selectSessionApplication(app) {
+  async selectSessionApplication(app, { loadWorkspace = true } = {}) {
     this.contextsError = ''
     try {
       const organization = app.organization || null
@@ -219,6 +234,11 @@ export const store = reactive({
       }
       setRequestContext(this.activeContext)
       saveContext(this.activeContext)
+      // En /seguridad se conserva el contexto del host sin cargar mensajes ni catalogos de negocio.
+      if (!loadWorkspace) {
+        this.resetMessages()
+        return
+      }
       this.environments = unwrapList(await catalogApi.environments(app.id))
       this.environmentFilter = this.environmentFilter
         .filter((id) => this.environments.some((env) => env.id === id))

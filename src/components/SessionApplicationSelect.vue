@@ -2,7 +2,7 @@
 import { reactive, ref, watch } from 'vue'
 import { store } from '../store'
 import { catalogApi } from '../api'
-import { asList } from '../presentation'
+import { asList, catalogLabel } from '../presentation'
 import AppModal from './ui/AppModal.vue'
 import AppIcon from './ui/AppIcon.vue'
 import PageHeader from './ui/PageHeader.vue'
@@ -117,7 +117,7 @@ function back() {
       <template v-else>
         <div class="workspace-cards">
           <div v-for="app in store.organizationApplications" :key="app.id">
-            <button class="workspace-item" @click="select(app)"><span class="workspace-item-icon"><AppIcon name="grid" :size="29" /></span><span class="workspace-item-copy"><strong>{{ app.name }}</strong><small>Idioma base: {{ app.language?.name || 'no disponible en el catálogo' }}</small><span class="badge-list"><EnvironmentBadge v-for="env in applicationEnvironments[app.id] || []" :key="env.id" :name="env.name" /><small v-if="!applicationEnvironments[app.id] && !environmentErrors[app.id]">Cargando ambientes…</small></span></span><AppIcon name="chevron" /></button>
+            <button class="workspace-item" @click="select(app)"><span class="workspace-item-icon"><AppIcon name="grid" :size="29" /></span><span class="workspace-item-copy"><strong>{{ app.name }}</strong><small>Idioma base: {{ catalogLabel(app.language?.name) || 'no disponible en el catálogo' }}</small><span class="badge-list"><EnvironmentBadge v-for="env in applicationEnvironments[app.id] || []" :key="env.id" :name="env.name" /><small v-if="!applicationEnvironments[app.id] && !environmentErrors[app.id]">Cargando ambientes…</small></span></span><AppIcon name="chevron" /></button>
             <p v-if="environmentErrors[app.id]" class="alert error" role="alert">No se pudieron consultar los ambientes: {{ environmentErrors[app.id] }}</p>
           </div>
         </div>
@@ -126,7 +126,7 @@ function back() {
     </fieldset>
     <AppModal v-if="modal" :title="modal === 'organization' ? 'Crear organización' : 'Crear aplicación'" :description="modal === 'organization' ? 'Un espacio para organizar tus aplicaciones.' : `Nueva aplicación en ${store.activeOrganization?.name}.`" :busy="busy" @close="modal = ''">
       <form class="modal-form" @submit.prevent="modal === 'organization' ? createOrganization() : createApplication()">
-        <fieldset :disabled="busy"><label v-if="modal === 'organization'">Nombre de la organización <span class="required">*</span><input v-model="organizationName" required maxlength="50" autocomplete="organization" placeholder="Ej. Universidad UCO" /></label><template v-else><label>Nombre de la aplicación <span class="required">*</span><input v-model="applicationForm.name" required maxlength="50" placeholder="Ej. Portal académico" /></label><label>Idioma base <span class="required">*</span><select v-model="applicationForm.languageId" required><option v-for="language in store.languages" :key="language.value" :value="language.value">{{ language.name }}</option></select></label><p class="context-notice"><AppIcon name="grid" :size="17" />Se crearán automáticamente los ambientes Develop, Testing y Production.</p></template></fieldset>
+        <fieldset :disabled="busy"><label v-if="modal === 'organization'">Nombre de la organización <span class="required">*</span><input v-model="organizationName" required maxlength="50" autocomplete="organization" placeholder="Ej. Universidad UCO" /></label><template v-else><label>Nombre de la aplicación <span class="required">*</span><input v-model="applicationForm.name" required maxlength="50" placeholder="Ej. Portal académico" /></label><label>Idioma base <span class="required">*</span><select v-model="applicationForm.languageId" required><option v-for="language in store.languages" :key="language.value" :value="language.value">{{ language.name }}</option></select></label><p class="context-notice"><AppIcon name="grid" :size="17" />Se crearán automáticamente los ambientes Develop, Testing y Produccion.</p></template></fieldset>
         <p v-if="error" class="alert error" role="alert">{{ error }}</p><footer class="form-actions"><button type="button" class="secondary" :disabled="busy" @click="modal = ''">Cancelar</button><button type="submit" :disabled="busy">{{ busy ? 'Guardando…' : modal === 'organization' ? 'Crear organización' : 'Crear aplicación' }}</button></footer>
       </form>
     </AppModal>

@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import { messageApi, toMessageCode } from '../api'
 import { store } from '../store'
+import { catalogLabel } from '../presentation'
 import PageHeader from './ui/PageHeader.vue'
 import EmptyState from './ui/EmptyState.vue'
 import AppIcon from './ui/AppIcon.vue'
@@ -16,9 +17,9 @@ const searching = ref(false)
 const searched = ref(false)
 const translationForbidden = ref(false)
 const languages = [
-  { code: 'en', name: 'English' }, { code: 'es', name: 'Español' },
-  { code: 'pt', name: 'Português' }, { code: 'fr', name: 'Français' },
-  { code: 'de', name: 'Deutsch' }, { code: 'it', name: 'Italiano' }
+  { code: 'en', name: 'Inglés' }, { code: 'es', name: 'Español' },
+  { code: 'pt', name: 'Portugués' }, { code: 'fr', name: 'Francés' },
+  { code: 'de', name: 'Alemán' }, { code: 'it', name: 'Italiano' }
 ]
 const matchesOriginal = computed(() => original.value?.code === toMessageCode(code.value))
 const languageName = (value) => languages.find((item) => item.code === value)?.name || value
@@ -32,7 +33,8 @@ async function search() {
   searched.value = true
   try {
     const data = await messageApi.byCode(toMessageCode(code.value))
-    original.value = Array.isArray(data) ? data[0] || null : data
+    const message = Array.isArray(data) ? data[0] || null : data
+    original.value = message ? { ...message, type: catalogLabel(message.type), category: catalogLabel(message.category) } : null
   } catch (e) {
     store.handleUnauthorized(e)
     error.value = e.message
@@ -66,7 +68,7 @@ async function translate() {
 <template>
   <section class="card">
     <PageHeader title="Traducir mensaje" description="Consulta el mensaje original y genera traducciones con los servicios actuales." />
-    <form class="translation-search" @submit.prevent="search"><label>Código del mensaje<div class="inline-field"><input v-model="code" required placeholder="Ej. MSG_WELCOME" :disabled="loading || searching" /><button type="submit" :disabled="!code.trim() || searching || loading"><AppIcon name="search" :size="16" />{{ searching ? 'Buscando…' : 'Buscar' }}</button></div></label><label>Idioma destino<select v-model="targetLanguage" :disabled="loading"><option v-for="language in languages" :key="language.code" :value="language.code">{{ language.name }}</option></select></label></form>
+    <form class="translation-search" @submit.prevent="search"><label>Código del mensaje<div class="inline-field"><input v-model="code" required placeholder="Ej. MSG_BIENVENIDA" :disabled="loading || searching" /><button type="submit" :disabled="!code.trim() || searching || loading"><AppIcon name="search" :size="16" />{{ searching ? 'Buscando…' : 'Buscar' }}</button></div></label><label>Idioma destino<select v-model="targetLanguage" :disabled="loading"><option v-for="language in languages" :key="language.code" :value="language.code">{{ language.name }}</option></select></label></form>
     <p v-if="error" class="alert error" role="alert">{{ error }}</p>
     <div v-if="original" class="translation-columns">
       <section class="translation-pane"><header><h2>Mensaje original</h2><span class="subtle-badge"><AppIcon name="globe" :size="13" />{{ languageName(translations[0]?.sourceLanguage) || 'Idioma detectado al traducir' }}</span></header><strong class="message-code">{{ original.code }}</strong><div class="translation-content"><h3>{{ original.title }}</h3><p>{{ original.content }}</p></div><dl class="translation-metadata"><div><dt>Tipo</dt><dd>{{ original.type }}</dd></div><div><dt>Categoría</dt><dd>{{ original.category }}</dd></div><div><dt>Funcionalidad</dt><dd>{{ original.functionality }}</dd></div></dl></section>

@@ -23,6 +23,10 @@ const paths = {
   reset: 'M3 10a9 9 0 1 1 2 8 M3 4v6h6',
   send: 'M22 2L9 15 M22 2l-7 20-4-9-9-4z',
   check: 'M5 12l4 4L19 6',
+  upload: 'M12 16V3 M7 8l5-5 5 5 M4 16v5h16v-5',
+  download: 'M12 3v13 M7 11l5 5 5-5 M4 17v4h16v-4',
+  file: 'M14 2H5v20h14V7z M14 2v5h5 M8 12h8 M8 16h8',
+  warning: 'M12 3L2 21h20z M12 9v5 M12 17h.01',
   globe: 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0 M3 12h18 M12 3c5 5 5 13 0 18-5-5-5-13 0-18',
   more: 'M5 12h.01 M12 12h.01 M19 12h.01'
 }

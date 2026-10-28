@@ -7,6 +7,7 @@ import { environmentTone } from '../presentation'
 import PageHeader from './ui/PageHeader.vue'
 import AppIcon from './ui/AppIcon.vue'
 import FunctionalityModal from './FunctionalityModal.vue'
+import MessageImport from './MessageImport.vue'
 
 const emit = defineEmits(['created', 'cancel'])
 const functionalities = ref([])
@@ -159,7 +160,7 @@ async function createMessage() {
                 Código <span class="required">*</span>
                 <div class="input-prefix">
                   <span>MSG_</span>
-                  <input v-model="codeInput" required maxlength="10" pattern="[A-Za-z0-9 ]{1,10}" title="Entre 1 y 10 letras, números o espacios; sin guiones." placeholder="WELCOME" />
+                  <input v-model="codeInput" required maxlength="10" pattern="[A-Za-z0-9 ]{1,10}" title="Entre 1 y 10 letras, números o espacios; sin guiones." placeholder="BIENVENIDA" />
                 </div>
                 <small>{{ form.code.length }}/10 · Se guarda como {{ toMessageCode(form.code) || 'MSG_…' }}</small>
               </label>
@@ -209,6 +210,7 @@ async function createMessage() {
         </footer>
       </form>
     </div>
+    <MessageImport :disabled="saving || !!success" @imported="emit('created', $event)" @view="emit('cancel')" />
     <FunctionalityModal v-if="showFunctionality" :application-id="context.applicationId" :application-name="context.applicationName" @close="showFunctionality = false" @created="onFunctionalityCreated" />
   </section>
 </template>
