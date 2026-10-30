@@ -195,6 +195,9 @@ body { min-width: 320px; min-height: 100vh; margin: 0; font-size: 13px; }
 .workspace-item-copy { display: flex; flex-direction: column; gap: 8px; min-width: 0; flex: 1; }
 .workspace-item-copy strong { font-size: 15px; font-weight: 700; overflow-wrap: anywhere; }
 .workspace-item-copy > small { color: var(--muted); font-size: 12px; font-weight: 400; }
+.copy-ids { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 8px 0 0 2px; color: var(--muted); font-size: 12px; }
+.business-ui .copy-ids-button { min-height: 28px; padding: 3px 10px; gap: 6px; font-size: 12px; }
+.copy-ids-done { color: var(--green); font-weight: 600; }
 .context-notice { display: flex; align-items: flex-start; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 7px; color: var(--muted); background: #f8fbff; font-size: 11px; line-height: 1.7; }
 
 /* Editor de mensajes */

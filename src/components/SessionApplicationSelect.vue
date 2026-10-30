@@ -89,6 +89,36 @@ function select(app) {
   })
 }
 
+// Las aplicaciones consumidoras leen sus mensajes con estos dos identificadores. Se copian al
+// portapapeles listos para pegar en la configuración del backend y del front, sin mostrarlos.
+const copied = ref('')
+let copiedTimer = 0
+const ENVIRONMENT_ORDER = ['develop', 'testing', 'produccion']
+function environmentsInOrder(app) {
+  const rank = (env) => {
+    const i = ENVIRONMENT_ORDER.indexOf(env.name?.toLowerCase())
+    return i < 0 ? ENVIRONMENT_ORDER.length : i
+  }
+  return [...(applicationEnvironments.value[app.id] || [])].sort((a, b) => rank(a) - rank(b))
+}
+async function copyIdentifiers(app, env) {
+  const text = [
+    `MESSAGEUCOLAB_APPLICATION_ID=${app.id}`,
+    `MESSAGEUCOLAB_ENVIRONMENT_ID=${env.id}`,
+    `VITE_MESSAGEUCOLAB_APPLICATION_ID=${app.id}`,
+    `VITE_MESSAGEUCOLAB_ENVIRONMENT_ID=${env.id}`
+  ].join('\n')
+  error.value = ''
+  try {
+    await navigator.clipboard.writeText(text)
+    copied.value = `${app.id}:${env.id}`
+    clearTimeout(copiedTimer)
+    copiedTimer = setTimeout(() => (copied.value = ''), 2500)
+  } catch {
+    error.value = 'No se pudieron copiar los identificadores. Revisa que el navegador permita usar el portapapeles.'
+  }
+}
+
 function back() {
   store.activeOrganization = null
   store.organizationApplications = []
@@ -118,6 +148,11 @@ function back() {
         <div class="workspace-cards">
           <div v-for="app in store.organizationApplications" :key="app.id">
             <button class="workspace-item" @click="select(app)"><span class="workspace-item-icon"><AppIcon name="grid" :size="29" /></span><span class="workspace-item-copy"><strong>{{ app.name }}</strong><small>Idioma base: {{ catalogLabel(app.language?.name) || 'no disponible en el catálogo' }}</small><span class="badge-list"><EnvironmentBadge v-for="env in applicationEnvironments[app.id] || []" :key="env.id" :name="env.name" /><small v-if="!applicationEnvironments[app.id] && !environmentErrors[app.id]">Cargando ambientes…</small></span></span><AppIcon name="chevron" /></button>
+            <div v-if="applicationEnvironments[app.id]?.length" class="copy-ids">
+              <span>Copiar identificadores:</span>
+              <button v-for="env in environmentsInOrder(app)" :key="env.id" type="button" class="secondary copy-ids-button" :aria-label="`Copiar los identificadores de ${app.name} en ${env.name}`" @click="copyIdentifiers(app, env)"><AppIcon :name="copied === `${app.id}:${env.id}` ? 'check' : 'copy'" :size="14" />{{ env.name }}</button>
+              <span v-if="copied.startsWith(`${app.id}:`)" class="copy-ids-done" role="status">Copiados al portapapeles</span>
+            </div>
             <p v-if="environmentErrors[app.id]" class="alert error" role="alert">No se pudieron consultar los ambientes: {{ environmentErrors[app.id] }}</p>
           </div>
         </div>
