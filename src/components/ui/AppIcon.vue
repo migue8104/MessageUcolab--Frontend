@@ -28,7 +28,8 @@ const paths = {
   file: 'M14 2H5v20h14V7z M14 2v5h5 M8 12h8 M8 16h8',
   warning: 'M12 3L2 21h20z M12 9v5 M12 17h.01',
   globe: 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0 M3 12h18 M12 3c5 5 5 13 0 18-5-5-5-13 0-18',
-  more: 'M5 12h.01 M12 12h.01 M19 12h.01'
+  more: 'M5 12h.01 M12 12h.01 M19 12h.01',
+  copy: 'M9 9h11v11H9z M5 15H4V4h11v1'
 }
 </script>
 
