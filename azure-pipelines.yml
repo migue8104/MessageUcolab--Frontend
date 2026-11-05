@@ -1,0 +1,33 @@
+trigger:
+  - main
+  - develop
+
+# Valida cada PR dirigido a estas ramas (PR validation)
+pr:
+  - main
+  - develop
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  nodeVersion: '20.x'
+
+steps:
+  - task: NodeTool@0
+    displayName: 'Instalar Node.js $(nodeVersion)'
+    inputs:
+      versionSpec: '$(nodeVersion)'
+
+  - script: npm ci
+    displayName: 'Instalar dependencias'
+
+  - script: npm run lint
+    displayName: 'Validar calidad de código (ESLint)'
+
+  - script: npm run build
+    displayName: 'Compilar proyecto (Vite)'
+
+  - publish: $(System.DefaultWorkingDirectory)/dist
+    displayName: 'Publicar artefacto de build'
+    artifact: frontend-dist

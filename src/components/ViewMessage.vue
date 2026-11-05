@@ -1,92 +1,89 @@
 <script setup>
 import { ref, watch } from 'vue'
-import { messageApi } from '../api'
+import { messageApi, toMessageCode } from '../api'
 import { store } from '../store'
+import { statusName, formatDate, catalogLabel } from '../presentation'
+import PageHeader from './ui/PageHeader.vue'
+import AppIcon from './ui/AppIcon.vue'
+import EmptyState from './ui/EmptyState.vue'
+import StatusBadge from './ui/StatusBadge.vue'
+import EnvironmentBadge from './ui/EnvironmentBadge.vue'
 
 const props = defineProps({ code: { type: String, default: '' } })
-
-const code = ref('')
+const emit = defineEmits(['edit'])
+const inputCode = ref('')
 const result = ref(null)
 const error = ref('')
+const loading = ref(false)
+const searched = ref(false)
 
 async function load() {
+  if (loading.value) return
   error.value = ''
   result.value = null
-  const value = code.value.trim()
-  if (!store.token || !value) return
+  const value = toMessageCode(inputCode.value)
+  if (!store.isAuthenticated || !value) return
+  loading.value = true
+  searched.value = true
   try {
-    const data = await messageApi.byCode(value, store.token)
+    const data = await messageApi.byCode(value)
     result.value = Array.isArray(data) ? data[0] || null : data
-    if (!result.value) error.value = 'No se encontró ningún mensaje con ese código.'
   } catch (e) {
+    store.handleUnauthorized(e)
     error.value = e.message
+  } finally {
+    loading.value = false
   }
 }
 
-watch(
-  () => props.code,
-  (value) => {
-    if (value) {
-      code.value = value
-      load()
-    }
-  },
-  { immediate: true }
-)
+watch(() => props.code, (value) => {
+  if (value) {
+    inputCode.value = value
+    load()
+  }
+}, { immediate: true })
 </script>
 
 <template>
   <section class="card">
-    <h2>Consultar mensaje por código</h2>
-
-    <p v-if="!store.token" class="warn">
-      No hay token. Ve a la pestaña "Crear mensaje" y genera un token primero.
-    </p>
-
-    <template v-else>
-      <div class="toolbar">
-        <input
-          v-model="code"
-          placeholder="Código del mensaje (ej. REL_TO_DOC_006)"
-          @keyup.enter="load"
-        />
-        <button :disabled="!code.trim()" @click="load">Consultar</button>
+    <PageHeader title="Consultar mensaje por código" description="Busca y visualiza la información completa de un mensaje." />
+    <form class="lookup-bar" @submit.prevent="load">
+      <label class="sr-only" for="lookup-code">Código del mensaje</label>
+      <input id="lookup-code" v-model="inputCode" placeholder="Código del mensaje (ej. MSG_BIENVENIDA)" />
+      <button type="submit" :disabled="!inputCode.trim() || loading">
+        <AppIcon name="search" :size="16" />{{ loading ? 'Consultando…' : 'Consultar' }}
+      </button>
+    </form>
+    <p v-if="error" class="alert error" role="alert">{{ error }}</p>
+    <article v-if="result" class="message-detail">
+      <header class="detail-heading">
+        <div><strong>{{ result.code }}</strong><StatusBadge :status="statusName(result)" /></div>
+        <button type="button" class="soft" @click="emit('edit', result)"><AppIcon name="edit" :size="16" />Editar</button>
+      </header>
+      <div class="detail-columns">
+        <dl class="detail-list">
+          <div><dt>Título</dt><dd>{{ result.title }}</dd></div>
+          <div><dt>Organización</dt><dd>{{ store.activeContext?.organizationName }}</dd></div>
+          <div><dt>Aplicación</dt><dd>{{ store.activeContext?.applicationName }}</dd></div>
+          <div><dt>Funcionalidad</dt><dd>{{ result.functionality }}</dd></div>
+          <div><dt>Tipo</dt><dd>{{ catalogLabel(result.type) }}</dd></div>
+          <div><dt>Categoría</dt><dd>{{ catalogLabel(result.category) }}</dd></div>
+        </dl>
+        <dl class="detail-list">
+          <div>
+            <dt>Ambientes</dt>
+            <dd class="badge-list">
+              <EnvironmentBadge v-for="env in result.environments || []" :key="env.id" :name="env.name" />
+              <span v-if="!result.environments?.length">—</span>
+            </dd>
+          </div>
+          <div><dt>Estado</dt><dd><StatusBadge :status="statusName(result)" /></dd></div>
+          <div class="stacked"><dt>Contenido</dt><dd class="message-content">{{ result.content }}</dd></div>
+          <div class="stacked"><dt>Última modificación</dt><dd>{{ formatDate(result.updatedAt) }}</dd></div>
+          <div v-if="result.createdAt" class="stacked"><dt>Fecha de creación</dt><dd>{{ formatDate(result.createdAt) }}</dd></div>
+        </dl>
       </div>
-
-      <p v-if="error" class="err">{{ error }}</p>
-
-      <table v-if="result" class="detail">
-        <tbody>
-          <tr>
-            <th>Código</th>
-            <td>{{ result.code }}</td>
-          </tr>
-          <tr>
-            <th>Título</th>
-            <td>{{ result.title }}</td>
-          </tr>
-          <tr>
-            <th>Contenido</th>
-            <td>{{ result.content }}</td>
-          </tr>
-          <tr>
-            <th>Tipo</th>
-            <td>{{ result.type }}</td>
-          </tr>
-          <tr>
-            <th>Categoría</th>
-            <td>{{ result.category }}</td>
-          </tr>
-          <tr>
-            <th>Aplicación</th>
-            <td>{{ result.application }}</td>
-          </tr>
-          <tr>
-            <th>Funcionalidad</th>
-            <td>{{ result.functionality }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </template>
+    </article>
+    <EmptyState v-else-if="!loading && !error" icon="search" :title="searched ? 'No encontramos ese código' : 'Encuentra el mensaje que necesitas'" :description="searched ? 'Verifica el código y la aplicación seleccionada.' : 'Ingresa un código para consultar sus datos y ambientes.'" />
   </section>
 </template>
