@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import vm from 'node:vm'
 import { URL } from 'node:url'
+import { validateMessageFields } from '../src/messageForm.js'
 
 const componentUrl = new URL('../src/components/EditMessage.vue', import.meta.url)
 
@@ -54,7 +55,7 @@ async function createHarness({ message = sampleMessage(), environments = default
   }, { context })
   const storeModule = new vm.SyntheticModule(['store'], function init() { this.setExport('store', store) }, { context })
   const formModule = new vm.SyntheticModule(['validateMessageFields'], function init() {
-    this.setExport('validateMessageFields', (form) => form.title.trim().length >= 10 && form.content.trim().length >= 10 && form.typeId && form.categoryId && form.statusId && form.functionalityId ? '' : 'Campos inválidos')
+    this.setExport('validateMessageFields', validateMessageFields)
   }, { context })
   const presentation = new vm.SyntheticModule(['catalogLabel', 'statusName', 'environmentTone'], function init() {
     this.setExport('catalogLabel', (value) => value?.name || '')
@@ -89,6 +90,29 @@ test('hidrata IDs de mensaje, deduplica ambientes reales y no usa selección ni 
   assert.equal(h.ns.form.functionalityId, 'fn-1')
   assert.equal(h.ns.allEnvironments.value, false)
   assert.deepEqual(h.store.environmentFilter, undefined)
+})
+
+test('updateMessage uses the production validator at exact boundaries and never submits invalid values', async () => {
+  const h = await createHarness()
+  const original = { ...h.ns.form }
+  const rejected = [
+    { title: 't'.repeat(9), content: 'c'.repeat(10) },
+    { title: 't'.repeat(201), content: 'c'.repeat(10) },
+    { title: 't'.repeat(10), content: 'c'.repeat(9) },
+    { title: 't'.repeat(10), content: 'c'.repeat(501) }
+  ]
+  for (const fields of rejected) {
+    Object.assign(h.ns.form, original, fields)
+    await h.ns.updateMessage()
+    assert.equal(h.calls.updates.length, 0)
+    assert.notEqual(h.ns.formError.value, '')
+  }
+
+  Object.assign(h.ns.form, original, { title: 't'.repeat(200), content: 'c'.repeat(500) })
+  await h.ns.updateMessage()
+  assert.equal(h.calls.updates.length, 1)
+  assert.equal(h.calls.updates[0][1].title.length, 200)
+  assert.equal(h.calls.updates[0][1].content.length, 500)
 })
 
 test('catálogos tardíos llenan campos vacíos y conservan selecciones manuales al refrescarse', async () => {

@@ -117,7 +117,7 @@ async function request(path, { method = 'GET', body, base = BASE, includeEnvelop
 }
 
 // Normaliza el código de mensaje: el backend solo acepta el sufijo
-// (máx. 10, patrón ^[A-Za-z0-9 ]+$) y lo guarda como MSG_<sufijo>.
+// (máx. 50, patrón ^[A-Za-z0-9 ]+$) y lo guarda como MSG_<sufijo>.
 export function toMessageCode(raw) {
   const value = String(raw || '')
     .trim()
