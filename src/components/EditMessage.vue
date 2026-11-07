@@ -185,12 +185,12 @@ async function updateMessage() {
             <h3><span class="section-number">1</span>Contenido</h3>
             <div class="form-grid two">
               <label>Título <span class="required">*</span>
-                <input v-model="form.title" required minlength="10" maxlength="200" placeholder="Ej. Registro completado" />
-                <small :class="{ 'field-warning': titleCount > 0 && form.title.trim().length < 10 }">{{ titleCount }}/200 caracteres · mínimo 10</small>
+                <input v-model="form.title" required minlength="5" maxlength="1000" placeholder="Ej. Registro completado" />
+                <small :class="{ 'field-warning': titleCount > 0 && form.title.trim().length < 5 }">{{ titleCount }}/1000 caracteres · mínimo 5</small>
               </label>
               <label>Contenido <span class="required">*</span>
-                <textarea v-model="form.content" required minlength="10" maxlength="500" rows="2" placeholder="Escribe el contenido del mensaje…"></textarea>
-                <small :class="{ 'field-warning': contentCount > 0 && form.content.trim().length < 10 }">{{ contentCount }}/500 caracteres · mínimo 10</small>
+                <textarea v-model="form.content" required minlength="5" maxlength="2000" rows="2" placeholder="Escribe el contenido del mensaje…"></textarea>
+                <small :class="{ 'field-warning': contentCount > 0 && form.content.trim().length < 5 }">{{ contentCount }}/2000 caracteres · mínimo 5</small>
               </label>
             </div>
           </section>
