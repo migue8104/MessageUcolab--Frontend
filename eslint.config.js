@@ -9,6 +9,18 @@ export default [
   js.configs.recommended,
   ...vue.configs['flat/essential'],
   {
+    files: ['tests/**/*.mjs'],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+        AbortController: 'readonly',
+        ReadableStream: 'readonly',
+        TextDecoder: 'readonly',
+        TextEncoder: 'readonly'
+      }
+    }
+  },
+  {
     files: ['**/*.{js,vue}'],
     languageOptions: {
       ecmaVersion: 'latest',
