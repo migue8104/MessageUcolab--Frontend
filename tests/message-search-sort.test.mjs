@@ -8,14 +8,39 @@ import { reactive } from 'vue'
 
 const root = new URL('../src/', import.meta.url)
 
-async function loadStore(fetchImpl) {
+function controlledTimers() {
+  let id = 0
+  const pending = new Map()
+  return {
+    setTimeout(callback, delay) {
+      const timerId = ++id
+      pending.set(timerId, { callback, delay })
+      return timerId
+    },
+    clearTimeout(timerId) { pending.delete(timerId) },
+    get pendingCount() { return pending.size },
+    runNext() {
+      const [timerId, timer] = pending.entries().next().value || []
+      if (timerId === undefined) throw new Error('No hay timer pendiente')
+      pending.delete(timerId)
+      timer.callback()
+      return timer.delay
+    }
+  }
+}
+
+async function flushMicrotasks() {
+  for (let index = 0; index < 8; index += 1) await Promise.resolve()
+}
+
+async function loadStore(fetchImpl, timers = { setTimeout, clearTimeout }) {
   const context = vm.createContext({
     fetch: fetchImpl,
     FormData: globalThis.FormData,
     URLSearchParams,
     localStorage: { setItem() {}, removeItem() {} },
-    setTimeout,
-    clearTimeout,
+    setTimeout: timers.setTimeout,
+    clearTimeout: timers.clearTimeout,
   })
   const vue = new vm.SyntheticModule(['reactive'], function initialize() {
     this.setExport('reactive', reactive)
@@ -144,12 +169,180 @@ test('outdated message response cannot replace current page result', async () =>
 
   const oldRequest = store.loadMessages(false, 1)
   const currentRequest = store.loadMessages(false, 2)
-  pending[1](successfulResponse({ data: [{ code: 'CURRENT' }], totalItems: 1, totalPages: 1 }))
+  await new Promise((resolve) => setImmediate(resolve))
+  pending[1](successfulResponse({ data: [{ code: 'CURRENT' }], totalItems: 11, totalPages: 2 }))
   await currentRequest
   pending[0](successfulResponse({ data: [{ code: 'STALE' }], totalItems: 9, totalPages: 9 }))
   await oldRequest
 
   assert.deepEqual(Array.from(store.messages, ({ code }) => code), ['CURRENT'])
-  assert.equal(store.totalMessages, 1)
+  assert.equal(store.totalMessages, 11)
   assert.equal(store.messagesPage, 2)
+})
+
+test('SSE bursts coalesce once and retain the strongest list invalidation', async () => {
+  const timers = controlledTimers()
+  const requests = []
+  const { store } = await loadStore(async (url) => {
+    requests.push(new URL(url, 'http://localhost'))
+    return successfulResponse({ data: [], totalItems: 2, totalPages: 1 })
+  }, timers)
+  store.isAuthenticated = true
+  store.activeContext = { applicationId: 'app-a' }
+  store.messagesPage = 3
+  store.messageSearch = 'CODE'
+
+  store.scheduleMessageRefresh({ type: 'MessageDeleted', applicationId: 'app-a' })
+  store.scheduleMessageRefresh({ type: 'MessageUpdated', applicationId: 'app-a' })
+  store.scheduleMessageRefresh({ type: 'MessagesChanged', applicationId: 'app-a' })
+  assert.equal(timers.pendingCount, 1)
+  assert.equal(timers.runNext(), 150)
+  await flushMicrotasks()
+
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0].searchParams.get('page'), '1')
+  assert.equal(requests[0].searchParams.get('filterCode'), 'CODE')
+})
+
+test('MessageCreated and MessageChanged refresh filtered membership from page one', async () => {
+  for (const type of ['MessageCreated', 'MessageChanged']) {
+    const timers = controlledTimers()
+    const requests = []
+    const { store } = await loadStore(async (url) => {
+      requests.push(new URL(url, 'http://localhost'))
+      return successfulResponse()
+    }, timers)
+    store.isAuthenticated = true
+    store.activeContext = { applicationId: 'app-a' }
+    store.messagesPage = 4
+    store.messageSearch = 'CODE'
+    store.scheduleMessageRefresh({ type, applicationId: 'app-a' })
+    timers.runNext()
+    await flushMicrotasks()
+    assert.equal(requests.length, 1)
+    assert.equal(requests[0].searchParams.get('page'), '1')
+    assert.equal(requests[0].searchParams.get('filterCode'), 'CODE')
+  }
+})
+
+test('SSE priority keeps collective invalidation over connected and individual updates', async () => {
+  const timers = controlledTimers()
+  const requests = []
+  const { store } = await loadStore(async (url) => {
+    requests.push(new URL(url, 'http://localhost'))
+    return successfulResponse()
+  }, timers)
+  store.isAuthenticated = true
+  store.activeContext = { applicationId: 'app-a' }
+  store.messagesPage = 5
+  store.messageSearch = 'CODE'
+  store.scheduleMessageRefresh({ type: 'MessageChanged', applicationId: 'app-a' })
+  store.scheduleMessageRefresh({ type: 'MessageUpdated', applicationId: 'app-a' })
+  store.scheduleMessageRefresh({ type: 'MessageCreated', applicationId: 'app-a' })
+  store.scheduleMessageRefresh({ type: 'connected', applicationId: 'app-a' })
+  store.scheduleMessageRefresh({ type: 'MessagesChanged', applicationId: 'app-a' })
+  timers.runNext()
+  await flushMicrotasks()
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0].searchParams.get('page'), '1')
+  assert.equal(requests[0].searchParams.get('filterCode'), 'CODE')
+})
+
+test('SSE change arriving during a list request stays pending and triggers a follow-up refresh', async () => {
+  const timers = controlledTimers()
+  const resolvers = []
+  const requests = []
+  const { store } = await loadStore((url) => {
+    requests.push(new URL(url, 'http://localhost'))
+    return new Promise((resolve) => resolvers.push(resolve))
+  }, timers)
+  store.isAuthenticated = true
+  store.activeContext = { applicationId: 'app-a' }
+  store.messagesPage = 3
+  store.messagesSortColumn = 'updatedAt'
+  store.messagesSortDirection = 'DESC'
+
+  store.scheduleMessageRefresh({ type: 'MessageUpdated', applicationId: 'app-a' })
+  timers.runNext()
+  await flushMicrotasks()
+  assert.equal(requests.length, 1)
+
+  store.scheduleMessageRefresh({ type: 'MessageDeleted', applicationId: 'app-a' })
+  assert.equal(timers.pendingCount, 0)
+  resolvers[0](successfulResponse({ data: [], totalItems: 41, totalPages: 5 }))
+  await flushMicrotasks()
+  assert.equal(timers.pendingCount, 1)
+
+  timers.runNext()
+  await flushMicrotasks()
+  assert.equal(requests.length, 2)
+  assert.equal(requests[0].searchParams.get('page'), '3')
+  assert.equal(requests[1].searchParams.get('page'), '1')
+  assert.equal(requests[1].searchParams.get('columnSort'), 'updatedAt')
+  assert.equal(requests[1].searchParams.get('sort'), 'DESC')
+  resolvers[1](successfulResponse({ data: [], totalItems: 0, totalPages: 1 }))
+  await flushMicrotasks()
+})
+
+test('switching application resets queued SSE refresh before its timer runs', async () => {
+  const timers = controlledTimers()
+  const requests = []
+  const { store } = await loadStore(async (url) => {
+    requests.push(url)
+    return successfulResponse()
+  }, timers)
+  store.isAuthenticated = true
+  store.activeContext = { applicationId: 'app-a' }
+
+  store.scheduleMessageRefresh({ type: 'MessagesChanged', applicationId: 'app-a' })
+  store.activeContext = { applicationId: 'app-b' }
+  store.resetMessages()
+  assert.equal(timers.pendingCount, 0)
+  assert.equal(store.messageRefreshPending, null)
+  assert.equal(requests.length, 0)
+})
+
+test('connected SSE event resynchronizes the snapshot without dropping filters or sort', async () => {
+  const timers = controlledTimers()
+  const requests = []
+  const { store } = await loadStore(async (url) => {
+    requests.push(new URL(url, 'http://localhost'))
+    return successfulResponse({ data: [], totalItems: 0, totalPages: 1 })
+  }, timers)
+  store.isAuthenticated = true
+  store.activeContext = { applicationId: 'app-a' }
+  store.messageStatusFilter = 'status-a'
+  store.functionalityFilter = 'functionality-a'
+  store.environmentFilter = ['env-a']
+  store.messagesSortColumn = 'updatedAt'
+  store.messagesSortDirection = 'DESC'
+
+  store.scheduleMessageRefresh({ type: 'connected', applicationId: 'app-a' })
+  timers.runNext()
+  await flushMicrotasks()
+
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0].searchParams.get('filterStatusId'), 'status-a')
+  assert.equal(requests[0].searchParams.get('filterFunctionalityId'), 'functionality-a')
+  assert.equal(requests[0].searchParams.get('filterEnvironments'), 'env-a')
+  assert.equal(requests[0].searchParams.get('columnSort'), 'updatedAt')
+  assert.equal(requests[0].searchParams.get('sort'), 'DESC')
+})
+
+test('loadMessages retries the last valid page when server total pages shrink', async () => {
+  const timers = controlledTimers()
+  const requests = []
+  const { store } = await loadStore(async (url) => {
+    const request = new URL(url, 'http://localhost')
+    requests.push(request)
+    return successfulResponse({ data: [{ code: 'PAGE' }], totalItems: 21, totalPages: 2 })
+  }, timers)
+  store.isAuthenticated = true
+  store.activeContext = { applicationId: 'app-a' }
+
+  await store.loadMessages(false, 5)
+
+  assert.deepEqual(requests.map((request) => request.searchParams.get('page')), ['5', '2'])
+  assert.equal(store.messagesPage, 2)
+  assert.deepEqual(Array.from(store.messages, ({ code }) => code), ['PAGE'])
 })

@@ -53,6 +53,19 @@ const sseConnectionKey = computed(
   () => store.activeContext?.applicationId || ''
 )
 let messageEventService = null
+const messageEventsWarning = computed(() => {
+  if (store.messageEventsStatus === 'forbidden') {
+    return 'La actualización automática está bloqueada. Solicita revisar el permiso GET /messageucolab/v1/messages/events en seguridad.'
+  }
+  return ['error', 'reconnecting', 'disconnected'].includes(store.messageEventsStatus)
+    ? 'Se perdió la conexión de actualizaciones. El listado se sincronizará automáticamente al reconectar.'
+    : ''
+})
+
+function reconnectMessageEvents() {
+  messageEventService?.stop()
+  messageEventService?.start()
+}
 
 function goTab(name) {
   sidebarOpen.value = false
@@ -106,10 +119,9 @@ async function onMessageCreated() {
   await store.loadMessages(true, 1)
 }
 
-async function onMessageUpdated() {
-  store.messageSearch = ''
-  await new Promise((resolve) => setTimeout(resolve, 2500))
-  await store.loadMessages(true, store.messagesPage)
+function onMessageUpdated() {
+  // The backend announces when the projected list is ready; no fixed wait or page reload.
+  store.scheduleMessageRefresh({ type: 'MutationAccepted' })
 }
 
 async function onCatalogCreated() {
@@ -126,7 +138,8 @@ onMounted(() => {
 function handleMessageEvent({ event, data }) {
   const payload = typeof data === 'string' ? null : data
   const eventType = event || payload?.type
-  if (!eventType || eventType === 'heartbeat' || eventType === 'connected') return
+  if (!eventType || eventType === 'heartbeat') return
+  if (payload?.applicationId && payload.applicationId !== store.activeContext?.applicationId) return
   // En modo sesión el backend ya envía solo eventos de la aplicación; se respeta el filtro activo.
   const visibleEnvironments = store.environmentFilter.length
     ? store.environmentFilter
@@ -135,7 +148,7 @@ function handleMessageEvent({ event, data }) {
   if (eventType === 'MessageDeleted') {
     store.removeMessageByCode(payload?.messageCode)
   }
-  store.refreshMessagesFromEvent({ ...payload, type: eventType })
+  store.scheduleMessageRefresh({ ...payload, type: eventType })
 }
 
 watch(
@@ -145,11 +158,19 @@ watch(
       messageEventService.stop()
       messageEventService = null
     }
+    store.messageEventsStatus = 'disconnected'
     if (isSecurityRoute || !authenticated || !applicationId) return
 
     messageEventService = createMessageEventService({
-      onEvent: handleMessageEvent,
-      onUnauthorized: () => store.handleUnauthorized({ status: 401 })
+      onEvent: (event) => {
+        if (applicationId === store.activeContext?.applicationId && hasAccess.value) handleMessageEvent(event)
+      },
+      onStatus: (status) => {
+        if (applicationId === store.activeContext?.applicationId) store.messageEventsStatus = status
+      },
+      onUnauthorized: () => {
+        if (applicationId === store.activeContext?.applicationId) store.handleUnauthorized({ status: 401 })
+      }
     })
     messageEventService.start()
   },
@@ -237,6 +258,7 @@ onBeforeUnmount(() => {
           <SessionApplicationSelect @selected="onContextSelected" />
         </section>
         <template v-else>
+          <p v-if="messageEventsWarning" class="alert warning" role="status" aria-live="polite">{{ messageEventsWarning }} <button type="button" class="link" @click="reconnectMessageEvents">Reconectar actualizaciones</button></p>
           <ListMessages v-if="tab === 'list'" @view="goView" @create="goCreate" />
           <CreateMessage v-else-if="tab === 'create'" @created="onMessageCreated" @cancel="goList" />
           <EditMessage v-else-if="tab === 'edit' && editMessage" :message="editMessage" @updated="onMessageUpdated" @cancel="goList" />
