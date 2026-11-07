@@ -4,6 +4,7 @@ import { catalogApi } from '../api'
 import { store } from '../store'
 import { statusName } from '../presentation'
 import FunctionalityModal from './FunctionalityModal.vue'
+import FunctionalityStateModal from './FunctionalityStateModal.vue'
 import PageHeader from './ui/PageHeader.vue'
 import AppIcon from './ui/AppIcon.vue'
 import EmptyState from './ui/EmptyState.vue'
@@ -18,6 +19,7 @@ const loading = ref(false)
 const error = ref('')
 const success = ref('')
 const showModal = ref(false)
+const stateTarget = ref(null)
 const page = ref(1)
 const pageSize = 10
 const applicationName = computed(() => store.applications.find((item) => item.id === applicationId.value)?.name || store.activeContext?.applicationName || '')
@@ -49,6 +51,21 @@ async function load() {
 }
 watch(applicationId, load, { immediate: true })
 watch([search, state, applicationId], () => { page.value = 1 })
+watch(pageCount, (count) => { page.value = Math.min(page.value, count) })
+watch(applicationId, () => { stateTarget.value = null; success.value = '' })
+async function stateUpdated(updated) {
+  stateTarget.value = null
+  functionalities.value = functionalities.value.map((item) => item.id === updated.id
+    ? { ...item, ...updated, active: updated.state === 'Activo' }
+    : item)
+  success.value = updated.state === 'Inactivo'
+    ? 'Funcionalidad inactivada. Todos sus mensajes están inactivos.'
+    : 'Funcionalidad activada. Sus mensajes conservan su estado.'
+  state.value = ''
+  emit('created', 'functionality')
+  await load()
+  if (store.activeContext?.applicationId === applicationId.value) await store.loadMessages(true)
+}
 function created({ functionalities: list }) {
   functionalities.value = list
   showModal.value = false
@@ -74,14 +91,15 @@ function created({ functionalities: list }) {
       </section>
     </div>
     <section class="card functionality-catalog">
-        <PageHeader title="Funcionalidades" description="Administra las funcionalidades de tu aplicación."><button :disabled="!applicationId || loading" @click="success = ''; showModal = true"><AppIcon name="plus" :size="16" />Crear funcionalidad</button></PageHeader>
+        <PageHeader title="Funcionalidades" description="Administra las funcionalidades de tu aplicación."><button :disabled="!applicationId || loading || !!stateTarget" @click="success = ''; showModal = true"><AppIcon name="plus" :size="16" />Crear funcionalidad</button></PageHeader>
         <div class="filter-grid catalog-filters"><label>Aplicación<select v-model="applicationId"><option v-for="app in store.applications" :key="app.id" :value="app.id">{{ app.name }}</option></select></label><label>Estado<select v-model="state" :disabled="!hasStates" :title="!hasStates ? 'El catálogo actual no devuelve estados' : ''"><option value="">Todos</option><option v-for="item in stateOptions" :key="item" :value="item">{{ item }}</option></select></label><label>Buscar funcionalidad<div class="search-control"><input v-model="search" placeholder="Buscar por nombre…" /><AppIcon name="search" :size="16" /></div></label></div>
         <p v-if="loading" class="loading-state" role="status">Cargando funcionalidades…</p><p v-if="error" class="alert error" role="alert">{{ error }} <button class="link" @click="load">Reintentar</button></p><p v-if="success" class="alert success" role="status">{{ success }}</p>
-        <div v-if="visible.length" class="table-scroll"><table><thead><tr><th>Nombre</th><th>Estado</th></tr></thead><tbody><tr v-for="item in visible" :key="item.id"><td class="strong">{{ item.name }}</td><td><StatusBadge :status="statusName(item)" /></td></tr></tbody></table></div>
+        <div v-if="visible.length" class="table-scroll"><table><thead><tr><th>Nombre</th><th>Estado</th><th>Acciones</th></tr></thead><tbody><tr v-for="item in visible" :key="item.id"><td class="strong">{{ item.name }}</td><td><StatusBadge :status="statusName(item)" /></td><td><button v-if="['Activo', 'Inactivo'].includes(statusName(item))" class="secondary" :disabled="loading" :aria-label="`${statusName(item) === 'Activo' ? 'Inactivar' : 'Activar'} ${item.name}`" @click="success = ''; stateTarget = item">{{ statusName(item) === 'Activo' ? 'Inactivar' : 'Activar' }}</button></td></tr></tbody></table></div>
         <EmptyState v-else-if="!loading && !error" icon="settings" :title="search || state ? 'Sin coincidencias' : 'Sin funcionalidades'" description="Crea funcionalidades para organizar tus mensajes."><button @click="showModal = true"><AppIcon name="plus" :size="16" />Crear funcionalidad</button></EmptyState>
-        <p class="data-note">Incluye funcionalidades activas e inactivas. Solo las activas se pueden seleccionar al crear mensajes. El catálogo permite consultar y crear, sin operaciones de edición o eliminación ni conteos de mensajes.</p>
+        <p class="data-note">Solo las funcionalidades activas se pueden seleccionar al crear mensajes. Al inactivar una funcionalidad, todos sus mensajes pasan a inactivos. Al activarla nuevamente, los mensajes no se reactivan automáticamente.</p>
         <footer v-if="filtered.length" class="pagination"><span>{{ filtered.length }} funcionalidades</span><div class="pagination-controls"><button class="secondary icon-button" aria-label="Página anterior" :disabled="page <= 1" @click="page--"><AppIcon name="back" :size="16" /></button><span class="current-page">{{ page }}</span><button class="secondary icon-button" aria-label="Página siguiente" :disabled="page >= pageCount" @click="page++"><AppIcon name="arrow" :size="16" /></button></div></footer>
     </section>
     <FunctionalityModal v-if="showModal" :application-id="applicationId" :application-name="applicationName" @close="showModal = false" @created="created" />
+    <FunctionalityStateModal v-if="stateTarget" :functionality="stateTarget" :application-id="applicationId" @close="stateTarget = null" @updated="stateUpdated" />
   </div>
 </template>
