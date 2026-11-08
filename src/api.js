@@ -13,6 +13,10 @@ const BASE = import.meta.env.DEV
 // El ambiente no es parte del contexto: es un dato de cada mensaje.
 const requestContext = { applicationId: '' }
 
+export function messageEventsUrl() {
+  return `${BASE}/v1/messages/events`
+}
+
 export function setRequestContext({ applicationId = '' } = {}) {
   requestContext.applicationId = applicationId
 }
@@ -117,7 +121,7 @@ async function request(path, { method = 'GET', body, base = BASE, includeEnvelop
 }
 
 // Normaliza el código de mensaje: el backend solo acepta el sufijo
-// (máx. 50, patrón ^[A-Za-z0-9 ]+$) y lo guarda como MSG_<sufijo>.
+// (máx. 500, patrón ^[A-Za-z0-9 ]+$) y lo guarda como MSG_<sufijo>.
 export function toMessageCode(raw) {
   const value = String(raw || '')
     .trim()
@@ -177,6 +181,11 @@ export const messageApi = {
 
   createFunctionality: (payload) =>
     request('/v1/application/functionality', { method: 'POST', body: payload }),
+
+  updateFunctionalityState: (functionalityId, applicationId, stateId) =>
+    request(`/v1/application/functionality/${encodeURIComponent(functionalityId)}/state`, {
+      method: 'PATCH', applicationId, body: { applicationId, stateId }
+    }),
 
   list: (page, size, environmentIds = [], {
     code = '', title = '', statusId = '', functionalityId = '', sort = 'ASC', columnSort = 'code', applicationId
