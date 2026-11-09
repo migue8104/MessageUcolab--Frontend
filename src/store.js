@@ -234,6 +234,16 @@ export const store = reactive({
     await this.selectOrganization(organization)
   },
 
+  async deletePersonalApplication(applicationId) {
+    // Only update local state after a confirmed response. Never repeat a destructive request automatically.
+    await messageApi.deleteApplication(applicationId)
+    if (this.activeContext?.applicationId === applicationId) this.clearSessionContext()
+    this.sessionApplications = this.sessionApplications.filter((app) => app.id !== applicationId)
+    this.organizationApplications = this.organizationApplications.filter((app) => app.id !== applicationId)
+    this.applications = this.applications.filter((app) => app.id !== applicationId)
+    if (rememberedApplicationId() === applicationId) saveContext(null)
+  },
+
   async selectSessionApplication(app, { loadWorkspace = true } = {}) {
     this.contextsError = ''
     try {
