@@ -179,6 +179,9 @@ export const messageApi = {
   createApplication: (payload) =>
     request('/v1/application', { method: 'POST', body: payload }),
 
+  deleteApplication: (applicationId) =>
+    request(`/v1/application/${encodeURIComponent(applicationId)}`, { method: 'DELETE', applicationId }),
+
   createFunctionality: (payload) =>
     request('/v1/application/functionality', { method: 'POST', body: payload }),
 
