@@ -144,6 +144,24 @@ export const catalogApi = {
   messageEnvironmentStates: () => request('/v1/catalog/message-environment-states')
 }
 
+// Identidades de servicio (client_id del componente de seguridad) que consumen cada ambiente.
+// MessageUcoLab saca la aplicación y el ambiente de ese client_id: el consumidor no envía identificadores.
+export const serviceIdentityApi = {
+  list: async (applicationId) => {
+    const result = await request(`/v1/application/${encodeURIComponent(applicationId)}/service-identities`,
+      { applicationId, includeEnvelope: true })
+    return Array.isArray(result) ? result : []
+  },
+  register: (applicationId, environmentId, clientId) =>
+    request(`/v1/application/${encodeURIComponent(applicationId)}/service-identities`, {
+      method: 'POST', applicationId, body: { environmentId, clientId }
+    }),
+  remove: (applicationId, clientId) =>
+    request(`/v1/application/${encodeURIComponent(applicationId)}/service-identities/${encodeURIComponent(clientId)}`, {
+      method: 'DELETE', applicationId
+    })
+}
+
 export const sessionApi = {
   user: () => request('/v1/session/user'),
   applications: () => request('/v1/session/applications')
