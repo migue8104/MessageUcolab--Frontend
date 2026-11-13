@@ -10,7 +10,7 @@ import EmptyState from './ui/EmptyState.vue'
 import EnvironmentBadge from './ui/EnvironmentBadge.vue'
 import ServiceIdentitiesModal from './ServiceIdentitiesModal.vue'
 
-const emit = defineEmits(['selected'])
+const emit = defineEmits(['selected', 'workspace-selected'])
 const organizationName = ref('')
 const busy = ref(false)
 const error = ref('')
@@ -70,7 +70,10 @@ async function perform(action) {
 }
 
 function openOrganization(organization) {
-  return perform(() => store.selectOrganization(organization))
+  return perform(async () => {
+    await store.selectOrganization(organization)
+    emit('workspace-selected')
+  })
 }
 
 function createOrganization() {
@@ -79,6 +82,7 @@ function createOrganization() {
     await store.createPersonalOrganization(organizationName.value.trim())
     organizationName.value = ''
     modal.value = ''
+    emit('workspace-selected')
   })
 }
 
@@ -139,6 +143,7 @@ function back() {
   store.organizationApplications = []
   error.value = ''
   notice.value = ''
+  emit('workspace-selected')
 }
 </script>
 
