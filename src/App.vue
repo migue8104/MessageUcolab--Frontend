@@ -217,7 +217,7 @@ onBeforeUnmount(() => {
         <div class="bar-actions">
           <button v-if="hasAccess" class="ctx-pill" title="Cambiar organización o aplicación" aria-label="Cambiar organización o aplicación" @click="onChangeContext"><AppIcon name="building" :size="15" /><span>{{ activeContext ? `${activeContext.organizationName} / ${activeContext.applicationName}` : store.activeOrganization?.name || 'Mis organizaciones' }}</span><AppIcon name="down" :size="13" /></button>
           <details v-if="hasAccess" class="user-menu">
-            <summary><span class="user-avatar">{{ userInitial }}</span><span class="user-email">{{ store.workspaceUser?.email || 'Sesión activa' }}</span><AppIcon name="down" :size="13" /></summary>
+            <summary><span class="user-avatar">{{ userInitial }}</span><span class="user-greeting">{{ store.workspaceUser?.name ? `Bienvenido, ${store.workspaceUser.name}` : 'Bienvenido' }}</span><AppIcon name="down" :size="13" /></summary>
             <div class="user-dropdown">
               <strong>{{ store.workspaceUser?.name || 'Mi cuenta' }}</strong>
               <span>{{ store.workspaceUser?.email }}</span>
