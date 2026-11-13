@@ -13,17 +13,21 @@ import ListMessages from './components/ListMessages.vue'
 import TranslateMessage from './components/TranslateMessage.vue'
 import ViewMessage from './components/ViewMessage.vue'
 import SecurityAdministrationPage from './components/security.vue'
+import ParametrosAdministrationPage from './components/parametros.vue'
 import AppIcon from './components/ui/AppIcon.vue'
 
-const isSecurityRoute = window.location.pathname.replace(/\/+$/, '') === '/seguridad'
-const { tab, viewCode, editMessage, navigationLoading, navigationError, goTab: navigateTab, goView, goEdit, onWorkspaceSelected } = useWorkspaceNavigation(isSecurityRoute)
+const currentPath = window.location.pathname.replace(/\/+$/, '')
+const isSecurityRoute = currentPath === '/seguridad'
+const isParametrosRoute = currentPath === '/parametros'
+const isExternalRoute = isSecurityRoute || isParametrosRoute
+const { tab, viewCode, editMessage, navigationLoading, navigationError, goTab: navigateTab, goView, goEdit, onWorkspaceSelected } = useWorkspaceNavigation(isExternalRoute)
 const sidebarOpen = ref(false)
 const mobile = ref(window.matchMedia('(max-width: 760px)').matches)
 const mobileQuery = window.matchMedia('(max-width: 760px)')
 const menuTrigger = ref(null)
 const sidebarElement = ref(null)
 const tabLabels = { list: 'Mensajes', create: 'Crear mensaje', view: 'Consultar', translate: 'Traducir', catalog: 'Configuración', edit: 'Editar mensaje' }
-const currentModule = computed(() => isSecurityRoute ? 'Seguridad' : !activeContext.value ? (store.activeOrganization ? `${store.activeOrganization.name} › Mis aplicaciones` : 'Mis organizaciones') : tabLabels[tab.value])
+const currentModule = computed(() => isSecurityRoute ? 'Seguridad' : isParametrosRoute ? 'Parámetros' : !activeContext.value ? (store.activeOrganization ? `${store.activeOrganization.name} › Mis aplicaciones` : 'Mis organizaciones') : tabLabels[tab.value])
 const userInitial = computed(() => (store.workspaceUser?.name || store.workspaceUser?.email || 'U').slice(0, 1).toUpperCase())
 function onViewportChange(event) { mobile.value = event.matches; sidebarOpen.value = false }
 
@@ -73,6 +77,11 @@ function goSecurity() {
   if (!isSecurityRoute) window.location.assign('/seguridad')
 }
 
+function goParametros() {
+  sidebarOpen.value = false
+  if (!isParametrosRoute) window.location.assign('/parametros')
+}
+
 function goCreate() {
   goTab('create')
 }
@@ -87,7 +96,7 @@ async function onChangeContext() {
   store.activeOrganization = null
   store.organizationApplications = []
   tab.value = 'list'
-  if (isSecurityRoute) { window.location.assign('/#list'); return }
+  if (isExternalRoute) { window.location.assign('/#list'); return }
   await store.loadSessionApplications()
   onWorkspaceSelected()
 }
@@ -138,7 +147,7 @@ watch(
       messageEventService = null
     }
     store.messageEventsStatus = 'disconnected'
-    if (isSecurityRoute || !authenticated || !applicationId) return
+    if (isExternalRoute || !authenticated || !applicationId) return
 
     messageEventService = createMessageEventService({
       onEvent: (event) => {
@@ -176,24 +185,27 @@ onBeforeUnmount(() => {
       </div>
 
       <p class="sidebar-label">ESPACIO DE TRABAJO</p>
-      <nav v-if="hasAccess && (activeContext || isSecurityRoute)" class="side-nav" aria-label="Navegación principal">
-        <button :class="{ active: !isSecurityRoute && tab === 'list' }" :aria-current="!isSecurityRoute && tab === 'list' ? 'page' : undefined" @click="goTab('list')">
+      <nav v-if="hasAccess && (activeContext || isExternalRoute)" class="side-nav" aria-label="Navegación principal">
+        <button :class="{ active: !isExternalRoute && tab === 'list' }" :aria-current="!isExternalRoute && tab === 'list' ? 'page' : undefined" @click="goTab('list')">
           <AppIcon name="messages" />Mensajes
         </button>
-        <button :class="{ active: !isSecurityRoute && tab === 'create' }" :aria-current="!isSecurityRoute && tab === 'create' ? 'page' : undefined" @click="goTab('create')">
+        <button :class="{ active: !isExternalRoute && tab === 'create' }" :aria-current="!isExternalRoute && tab === 'create' ? 'page' : undefined" @click="goTab('create')">
           <AppIcon name="plus" />Crear mensaje
         </button>
-        <button :class="{ active: !isSecurityRoute && tab === 'view' }" :aria-current="!isSecurityRoute && tab === 'view' ? 'page' : undefined" @click="goTab('view')">
+        <button :class="{ active: !isExternalRoute && tab === 'view' }" :aria-current="!isExternalRoute && tab === 'view' ? 'page' : undefined" @click="goTab('view')">
           <AppIcon name="search" />Consultar
         </button>
-        <button :class="{ active: !isSecurityRoute && tab === 'translate' }" :aria-current="!isSecurityRoute && tab === 'translate' ? 'page' : undefined" @click="goTab('translate')">
+        <button :class="{ active: !isExternalRoute && tab === 'translate' }" :aria-current="!isExternalRoute && tab === 'translate' ? 'page' : undefined" @click="goTab('translate')">
           <AppIcon name="translate" />Traducir
         </button>
-        <button :class="{ active: !isSecurityRoute && tab === 'catalog' }" :aria-current="!isSecurityRoute && tab === 'catalog' ? 'page' : undefined" @click="goTab('catalog')">
+        <button :class="{ active: !isExternalRoute && tab === 'catalog' }" :aria-current="!isExternalRoute && tab === 'catalog' ? 'page' : undefined" @click="goTab('catalog')">
           <AppIcon name="settings" />Configuración
         </button>
         <button :class="{ active: isSecurityRoute }" :aria-current="isSecurityRoute ? 'page' : undefined" @click="goSecurity">
           <AppIcon name="shield" />Seguridad
+        </button>
+        <button :class="{ active: isParametrosRoute }" :aria-current="isParametrosRoute ? 'page' : undefined" @click="goParametros">
+          <AppIcon name="settings" />Parámetros
         </button>
       </nav>
       <div v-else class="sidebar-hint"><AppIcon name="building" /><p>Selecciona una aplicación para acceder a tus mensajes.</p></div>
@@ -228,9 +240,10 @@ onBeforeUnmount(() => {
         </div>
       </header>
 
-      <main class="workspace" :class="{ 'business-ui': !isSecurityRoute }" :inert="!hasAccess || navigationLoading">
+      <main class="workspace" :class="{ 'business-ui': !isExternalRoute }" :inert="!hasAccess || navigationLoading">
         <p v-if="navigationError" class="alert error" role="alert">{{ navigationError }}</p>
         <SecurityAdministrationPage v-if="isSecurityRoute && sessionRecovery.status === 'idle'" />
+        <ParametrosAdministrationPage v-else-if="isParametrosRoute && sessionRecovery.status === 'idle'" />
         <section v-else-if="navigationLoading || (store.contextsLoading && !activeContext)" class="card" role="status" aria-live="polite">
           <p class="info">Recuperando tu espacio de trabajo…</p>
         </section>

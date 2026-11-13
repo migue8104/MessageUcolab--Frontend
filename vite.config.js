@@ -10,6 +10,15 @@ export default defineConfig(({ mode }) => {
       port: 5174,
       strictPort: true,
       proxy: {
+        // Frontend del Catálogo (4201): sirve el bundle del microfrontend y proxea su API.
+        '/parametros-ui': {
+          target: env.VITE_PARAMETROS_URL || 'http://localhost:4201',
+          changeOrigin: true
+        },
+        '/catalogo-parametros': {
+          target: env.VITE_PARAMETROS_URL || 'http://localhost:4201',
+          changeOrigin: true
+        },
         '/messageucolab': {
           target: env.VITE_API_URL || 'http://localhost:8085',
           changeOrigin: true,
