@@ -102,6 +102,7 @@ onMounted(load)
 </template>
 
 <style scoped>
+.service-identities .form-actions { padding-top: 12px; padding-bottom: 16px; }
 .service-identity-form fieldset { display: grid; grid-template-columns: minmax(130px, 180px) minmax(0, 1fr) auto; align-items: end; gap: 12px; margin: 0; padding: 0; border: 0; }
 .service-identity-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .service-identity-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 7px; }

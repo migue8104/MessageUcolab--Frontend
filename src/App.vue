@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { store } from './store'
 import { createMessageEventService } from './messageEventService'
+import { useWorkspaceNavigation } from './workspaceNavigation'
 import { sessionRecovery } from './security/session'
 import SessionExpiredDialog from './components/SessionExpiredDialog.vue'
 import SessionApplicationSelect from './components/SessionApplicationSelect.vue'
@@ -15,16 +16,11 @@ import SecurityAdministrationPage from './components/security.vue'
 import ParametrosAdministrationPage from './components/parametros.vue'
 import AppIcon from './components/ui/AppIcon.vue'
 
-const TABS = ['list', 'create', 'view', 'translate', 'catalog']
-// Al volver desde /seguridad el hash indica la sección elegida en la barra lateral.
-const initialTab = window.location.hash.replace('#', '')
-const tab = ref(TABS.includes(initialTab) ? initialTab : 'list')
-const viewCode = ref('')
 const currentPath = window.location.pathname.replace(/\/+$/, '')
 const isSecurityRoute = currentPath === '/seguridad'
 const isParametrosRoute = currentPath === '/parametros'
 const isExternalRoute = isSecurityRoute || isParametrosRoute
-const editMessage = ref(null)
+const { tab, viewCode, editMessage, navigationLoading, navigationError, goTab: navigateTab, goView, goEdit, onWorkspaceSelected } = useWorkspaceNavigation(isExternalRoute)
 const sidebarOpen = ref(false)
 const mobile = ref(window.matchMedia('(max-width: 760px)').matches)
 const mobileQuery = window.matchMedia('(max-width: 760px)')
@@ -73,12 +69,7 @@ function reconnectMessageEvents() {
 
 function goTab(name) {
   sidebarOpen.value = false
-  if (isExternalRoute) {
-    window.location.assign(`/#${name}`)
-    return
-  }
-  tab.value = name
-  window.history.replaceState(null, '', `/#${name}`)
+  navigateTab(name)
 }
 
 function goSecurity() {
@@ -91,22 +82,12 @@ function goParametros() {
   if (!isParametrosRoute) window.location.assign('/parametros')
 }
 
-function goView(code) {
-  viewCode.value = code
-  tab.value = 'view'
-}
-
 function goCreate() {
-  tab.value = 'create'
-}
-
-function goEdit(message) {
-  editMessage.value = message
-  tab.value = 'edit'
+  goTab('create')
 }
 
 function goList() {
-  tab.value = 'list'
+  goTab('list')
 }
 
 async function onChangeContext() {
@@ -117,10 +98,11 @@ async function onChangeContext() {
   tab.value = 'list'
   if (isExternalRoute) { window.location.assign('/#list'); return }
   await store.loadSessionApplications()
+  onWorkspaceSelected()
 }
 
 function onContextSelected() {
-  tab.value = 'list'
+  onWorkspaceSelected()
 }
 
 async function onMessageCreated() {
@@ -139,9 +121,6 @@ async function onCatalogCreated() {
 
 onMounted(() => {
   mobileQuery.addEventListener('change', onViewportChange)
-  if (!hasAccess.value) return
-
-  store.loadSessionApplications({ loadWorkspace: !isExternalRoute })
 })
 
 function handleMessageEvent({ event, data }) {
@@ -195,7 +174,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="app-shell" @keydown.esc="sidebarOpen = false">
     <button v-if="sidebarOpen && mobile" class="sidebar-scrim" tabindex="-1" aria-label="Cerrar menú" @click="sidebarOpen = false"></button>
-    <aside id="workspace-sidebar" ref="sidebarElement" class="sidebar business-ui" :class="{ 'is-open': sidebarOpen }" :inert="mobile && !sidebarOpen" @keydown.tab="onSidebarTab">
+    <aside id="workspace-sidebar" ref="sidebarElement" class="sidebar business-ui" :class="{ 'is-open': sidebarOpen }" :inert="navigationLoading || (mobile && !sidebarOpen)" @keydown.tab="onSidebarTab">
       <div class="brand-lockup">
         <span class="brand-mark" aria-hidden="true">M</span>
         <div>
@@ -241,7 +220,7 @@ onBeforeUnmount(() => {
     </aside>
 
     <div class="app-main" :inert="mobile && sidebarOpen">
-      <header class="bar business-ui">
+      <header class="bar business-ui" :inert="navigationLoading">
         <button ref="menuTrigger" class="mobile-menu icon-button secondary" aria-label="Abrir menú de navegación" :aria-expanded="sidebarOpen" aria-controls="workspace-sidebar" @click="sidebarOpen = !sidebarOpen"><AppIcon name="menu" /></button>
         <div class="bar-caption">
           <span>PLATAFORMA</span>
@@ -250,7 +229,7 @@ onBeforeUnmount(() => {
         <div class="bar-actions">
           <button v-if="hasAccess" class="ctx-pill" title="Cambiar organización o aplicación" aria-label="Cambiar organización o aplicación" @click="onChangeContext"><AppIcon name="building" :size="15" /><span>{{ activeContext ? `${activeContext.organizationName} / ${activeContext.applicationName}` : store.activeOrganization?.name || 'Mis organizaciones' }}</span><AppIcon name="down" :size="13" /></button>
           <details v-if="hasAccess" class="user-menu">
-            <summary><span class="user-avatar">{{ userInitial }}</span><span class="user-email">{{ store.workspaceUser?.email || 'Sesión activa' }}</span><AppIcon name="down" :size="13" /></summary>
+            <summary><span class="user-avatar">{{ userInitial }}</span><span class="user-greeting">{{ store.workspaceUser?.name ? `Bienvenido, ${store.workspaceUser.name}` : 'Bienvenido' }}</span><AppIcon name="down" :size="13" /></summary>
             <div class="user-dropdown">
               <strong>{{ store.workspaceUser?.name || 'Mi cuenta' }}</strong>
               <span>{{ store.workspaceUser?.email }}</span>
@@ -261,14 +240,15 @@ onBeforeUnmount(() => {
         </div>
       </header>
 
-      <main class="workspace" :class="{ 'business-ui': !isExternalRoute }" :inert="!hasAccess">
+      <main class="workspace" :class="{ 'business-ui': !isExternalRoute }" :inert="!hasAccess || navigationLoading">
+        <p v-if="navigationError" class="alert error" role="alert">{{ navigationError }}</p>
         <SecurityAdministrationPage v-if="isSecurityRoute && sessionRecovery.status === 'idle'" />
         <ParametrosAdministrationPage v-else-if="isParametrosRoute && sessionRecovery.status === 'idle'" />
-        <section v-else-if="store.contextsLoading && !activeContext" class="card" role="status" aria-live="polite">
+        <section v-else-if="navigationLoading || (store.contextsLoading && !activeContext)" class="card" role="status" aria-live="polite">
           <p class="info">Recuperando tu espacio de trabajo…</p>
         </section>
         <section v-else-if="!activeContext" class="auth-stage">
-          <SessionApplicationSelect @selected="onContextSelected" />
+          <SessionApplicationSelect @selected="onContextSelected" @workspace-selected="onWorkspaceSelected" />
         </section>
         <template v-else>
           <p v-if="messageEventsWarning" class="alert warning" role="status" aria-live="polite">{{ messageEventsWarning }} <button type="button" class="link" @click="reconnectMessageEvents">Reconectar actualizaciones</button></p>
