@@ -53,6 +53,16 @@ function saveContext(context) {
   }
 }
 
+function mergeMessageEvents(current, incoming) {
+  if (!current) return incoming
+  const priority = ['MessageDeleted', 'MessagesChanged', 'connected', 'MessageCreated', 'MessageUpdated', 'MessageChanged']
+  const currentPriority = priority.indexOf(current.type)
+  const incomingPriority = priority.indexOf(incoming.type)
+  return currentPriority !== -1 && (incomingPriority === -1 || currentPriority < incomingPriority)
+    ? current
+    : incoming
+}
+
 // Estado global compartido entre todos los componentes (reactivo).
 export const store = reactive({
   isAuthenticated: false,
@@ -139,8 +149,12 @@ export const store = reactive({
   messageRefreshTimer: null,
   messageRefreshInFlight: false,
   messageRefreshPending: null,
+  messageEventsStatus: 'disconnected',
 
   resetMessages() {
+    if (this.messageRefreshTimer) clearTimeout(this.messageRefreshTimer)
+    this.messageRefreshTimer = null
+    this.messageRefreshPending = null
     this.messages = []
     this.totalMessages = 0
     this.totalPages = 0
@@ -218,6 +232,16 @@ export const store = reactive({
     await messageApi.createApplication({ ...payload, organizationId: organization.id })
     await this.loadSessionApplications()
     await this.selectOrganization(organization)
+  },
+
+  async deletePersonalApplication(applicationId) {
+    // Only update local state after a confirmed response. Never repeat a destructive request automatically.
+    await messageApi.deleteApplication(applicationId)
+    if (this.activeContext?.applicationId === applicationId) this.clearSessionContext()
+    this.sessionApplications = this.sessionApplications.filter((app) => app.id !== applicationId)
+    this.organizationApplications = this.organizationApplications.filter((app) => app.id !== applicationId)
+    this.applications = this.applications.filter((app) => app.id !== applicationId)
+    if (rememberedApplicationId() === applicationId) saveContext(null)
   },
 
   async selectSessionApplication(app, { loadWorkspace = true } = {}) {
@@ -323,9 +347,15 @@ export const store = reactive({
         statusId: this.messageStatusFilter,
         functionalityId: this.functionalityFilter,
         sort: this.messagesSortDirection,
-        columnSort: this.messagesSortColumn
+        columnSort: this.messagesSortColumn,
+        applicationId
       }))
       if (requestVersion !== this.messagesRequestVersion || applicationId !== this.activeContext?.applicationId) return
+      const lastPage = Math.max(1, res.totalPages ?? 1)
+      if (page > lastPage) {
+        await this.loadMessages(silent, lastPage)
+        return
+      }
       this.messages = res.data || []
       this.totalMessages = res.totalItems ?? 0
       this.totalPages = res.totalPages ?? 0
@@ -343,8 +373,12 @@ export const store = reactive({
   },
 
   scheduleMessageRefresh(event = null) {
-    this.messageRefreshPending = event
-    if (this.messageRefreshTimer) clearTimeout(this.messageRefreshTimer)
+    const applicationId = this.activeContext?.applicationId
+    if (!applicationId || !this.isAuthenticated || (event?.applicationId && event.applicationId !== applicationId)) return
+    const incoming = { ...event, applicationId, type: event?.type || 'MessagesChanged' }
+    this.messageRefreshPending = mergeMessageEvents(this.messageRefreshPending, incoming)
+    // Coalesce a burst without postponing indefinitely while updates keep arriving.
+    if (this.messageRefreshTimer || this.messageRefreshInFlight) return
     this.messageRefreshTimer = setTimeout(() => {
       this.messageRefreshTimer = null
       const pendingEvent = this.messageRefreshPending
@@ -354,16 +388,17 @@ export const store = reactive({
   },
 
   async refreshMessagesFromEvent(event = null) {
+    if (event?.applicationId && event.applicationId !== this.activeContext?.applicationId) return
     if (this.messageRefreshInFlight) {
-      this.messageRefreshPending = event
+      this.scheduleMessageRefresh(event)
       return
     }
     this.messageRefreshInFlight = true
     try {
       // Todos los refrescos conservan los filtros y los totales calculados por el servidor.
       const membershipChanged = event?.type === 'MessageDeleted'
-        || (event?.type === 'MessageUpdated'
-          && (this.messageStatusFilter || this.functionalityFilter || this.messageTitleSearch))
+        || (['MessageCreated', 'MessageUpdated', 'MessageChanged', 'MessagesChanged', 'connected'].includes(event?.type)
+          && (this.messageStatusFilter || this.functionalityFilter || this.messageTitleSearch || this.messageSearch))
       const page = membershipChanged ? 1 : this.messagesPage
       await this.loadMessages(true, page)
     } catch (e) {

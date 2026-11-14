@@ -96,10 +96,10 @@ test('updateMessage uses the production validator at exact boundaries and never 
   const h = await createHarness()
   const original = { ...h.ns.form }
   const rejected = [
-    { title: 't'.repeat(9), content: 'c'.repeat(10) },
-    { title: 't'.repeat(201), content: 'c'.repeat(10) },
-    { title: 't'.repeat(10), content: 'c'.repeat(9) },
-    { title: 't'.repeat(10), content: 'c'.repeat(501) }
+    { title: 't'.repeat(4), content: 'c'.repeat(5) },
+    { title: 't'.repeat(1001), content: 'c'.repeat(5) },
+    { title: 't'.repeat(5), content: 'c'.repeat(4) },
+    { title: 't'.repeat(5), content: 'c'.repeat(2001) }
   ]
   for (const fields of rejected) {
     Object.assign(h.ns.form, original, fields)
@@ -108,11 +108,11 @@ test('updateMessage uses the production validator at exact boundaries and never 
     assert.notEqual(h.ns.formError.value, '')
   }
 
-  Object.assign(h.ns.form, original, { title: 't'.repeat(200), content: 'c'.repeat(500) })
+  Object.assign(h.ns.form, original, { title: 't'.repeat(1000), content: 'c'.repeat(2000) })
   await h.ns.updateMessage()
   assert.equal(h.calls.updates.length, 1)
-  assert.equal(h.calls.updates[0][1].title.length, 200)
-  assert.equal(h.calls.updates[0][1].content.length, 500)
+  assert.equal(h.calls.updates[0][1].title.length, 1000)
+  assert.equal(h.calls.updates[0][1].content.length, 2000)
 })
 
 test('catálogos tardíos llenan campos vacíos y conservan selecciones manuales al refrescarse', async () => {

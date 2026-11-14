@@ -13,6 +13,10 @@ const BASE = import.meta.env.DEV
 // El ambiente no es parte del contexto: es un dato de cada mensaje.
 const requestContext = { applicationId: '' }
 
+export function messageEventsUrl() {
+  return `${BASE}/v1/messages/events`
+}
+
 export function setRequestContext({ applicationId = '' } = {}) {
   requestContext.applicationId = applicationId
 }
@@ -117,7 +121,7 @@ async function request(path, { method = 'GET', body, base = BASE, includeEnvelop
 }
 
 // Normaliza el código de mensaje: el backend solo acepta el sufijo
-// (máx. 50, patrón ^[A-Za-z0-9 ]+$) y lo guarda como MSG_<sufijo>.
+// (máx. 500, patrón ^[A-Za-z0-9 ]+$) y lo guarda como MSG_<sufijo>.
 export function toMessageCode(raw) {
   const value = String(raw || '')
     .trim()
@@ -138,6 +142,24 @@ export const catalogApi = {
   messageCategories: () => request('/v1/catalog/message-categories'),
   messageStates: () => request('/v1/catalog/message-states'),
   messageEnvironmentStates: () => request('/v1/catalog/message-environment-states')
+}
+
+// Identidades de servicio (client_id del componente de seguridad) que consumen cada ambiente.
+// MessageUcoLab saca la aplicación y el ambiente de ese client_id: el consumidor no envía identificadores.
+export const serviceIdentityApi = {
+  list: async (applicationId) => {
+    const result = await request(`/v1/application/${encodeURIComponent(applicationId)}/service-identities`,
+      { applicationId, includeEnvelope: true })
+    return Array.isArray(result) ? result : []
+  },
+  register: (applicationId, environmentId, clientId) =>
+    request(`/v1/application/${encodeURIComponent(applicationId)}/service-identities`, {
+      method: 'POST', applicationId, body: { environmentId, clientId }
+    }),
+  remove: (applicationId, clientId) =>
+    request(`/v1/application/${encodeURIComponent(applicationId)}/service-identities/${encodeURIComponent(clientId)}`, {
+      method: 'DELETE', applicationId
+    })
 }
 
 export const sessionApi = {
@@ -175,8 +197,16 @@ export const messageApi = {
   createApplication: (payload) =>
     request('/v1/application', { method: 'POST', body: payload }),
 
+  deleteApplication: (applicationId) =>
+    request(`/v1/application/${encodeURIComponent(applicationId)}`, { method: 'DELETE', applicationId }),
+
   createFunctionality: (payload) =>
     request('/v1/application/functionality', { method: 'POST', body: payload }),
+
+  updateFunctionalityState: (functionalityId, applicationId, stateId) =>
+    request(`/v1/application/functionality/${encodeURIComponent(functionalityId)}/state`, {
+      method: 'PATCH', applicationId, body: { applicationId, stateId }
+    }),
 
   list: (page, size, environmentIds = [], {
     code = '', title = '', statusId = '', functionalityId = '', sort = 'ASC', columnSort = 'code', applicationId

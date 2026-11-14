@@ -58,16 +58,16 @@ function fill(h, { code = 'WELCOME', title = 't'.repeat(10), content = 'c'.repea
 
 test('CreateMessage.vue submits a normalized valid payload and rejects invalid boundary values without API writes', async () => {
   const h = await createHarness()
-  fill(h, { code: 'A', title: 't'.repeat(10), content: 'c'.repeat(10) })
+  fill(h, { code: 'A', title: 't'.repeat(5), content: 'c'.repeat(5) })
   await h.ns.createMessage()
   assert.equal(h.calls.creates.length, 1)
   assert.equal(h.calls.creates[0][0].code, 'A')
-  assert.equal(h.calls.creates[0][0].title.length, 10)
-  assert.equal(h.calls.creates[0][0].content.length, 10)
+  assert.equal(h.calls.creates[0][0].title.length, 5)
+  assert.equal(h.calls.creates[0][0].content.length, 5)
 
   for (const fields of [
-    { code: 'A'.repeat(51) }, { title: '' }, { title: 't'.repeat(9) }, { title: 't'.repeat(201) },
-    { content: '' }, { content: 'c'.repeat(9) }, { content: 'c'.repeat(501) }
+    { code: 'A'.repeat(501) }, { title: '' }, { title: 't'.repeat(4) }, { title: 't'.repeat(1001) },
+    { content: '' }, { content: 'c'.repeat(4) }, { content: 'c'.repeat(2001) }
   ]) {
     fill(h, fields)
     await h.ns.createMessage()
@@ -75,19 +75,19 @@ test('CreateMessage.vue submits a normalized valid payload and rejects invalid b
     assert.notEqual(h.ns.formError.value, '')
   }
 
-  fill(h, { code: 'A'.repeat(50), title: 't'.repeat(200), content: 'c'.repeat(500) })
+  fill(h, { code: 'A'.repeat(500), title: 't'.repeat(1000), content: 'c'.repeat(2000) })
   await h.ns.createMessage()
   assert.equal(h.calls.creates.length, 2)
-  assert.equal(h.calls.creates[1][0].code, 'A'.repeat(50))
-  assert.equal(h.calls.creates[1][0].title.length, 200)
-  assert.equal(h.calls.creates[1][0].content.length, 500)
+  assert.equal(h.calls.creates[1][0].code, 'A'.repeat(500))
+  assert.equal(h.calls.creates[1][0].title.length, 1000)
+  assert.equal(h.calls.creates[1][0].content.length, 2000)
 })
 
 test('CreateMessage.vue strips a pasted MSG_ prefix using its real computed input setter', async () => {
   const h = await createHarness()
-  h.ns.codeInput.value = `MSG_${'A'.repeat(50)}`
-  fill(h, { code: h.ns.codeInput.value, title: 't'.repeat(200), content: 'c'.repeat(500) })
+  h.ns.codeInput.value = `MSG_${'A'.repeat(500)}`
+  fill(h, { code: h.ns.codeInput.value, title: 't'.repeat(1000), content: 'c'.repeat(2000) })
   await h.ns.createMessage()
   assert.equal(h.calls.creates.length, 1)
-  assert.equal(h.calls.creates[0][0].code, 'A'.repeat(50))
+  assert.equal(h.calls.creates[0][0].code, 'A'.repeat(500))
 })

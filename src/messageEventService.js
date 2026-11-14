@@ -1,6 +1,5 @@
-import { contextHeaders } from './api'
+import { contextHeaders, messageEventsUrl } from './api'
 
-const EVENTS_PATH = '/messageucolab/v1/messages/events'
 const MAX_RECONNECT_DELAY = 30_000
 
 function parseEvent(block) {
@@ -59,16 +58,18 @@ export function createMessageEventService({ onEvent, onStatus, onUnauthorized } 
     }, delay)
   }
 
-  async function consume(response) {
+  async function consume(response, connection) {
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
 
     try {
-      while (!stopped) {
+      while (!stopped && controller === connection) {
         const { value, done } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+        if (done || stopped || controller !== connection) break
+        // Preserve a trailing CR until the next chunk, which may start with its LF.
+        buffer = (buffer + decoder.decode(value, { stream: true }))
+          .replace(/\r\n/g, '\n').replace(/\r(?!$)/g, '\n')
 
         let separator = buffer.indexOf('\n\n')
         while (separator !== -1) {
@@ -86,41 +87,48 @@ export function createMessageEventService({ onEvent, onStatus, onUnauthorized } 
 
   async function connect() {
     if (stopped || controller) return
-    controller = new AbortController()
+    const connection = new AbortController()
+    controller = connection
     status('connecting')
     let shouldReconnect = true
 
     try {
-      const response = await fetch(EVENTS_PATH, {
+      const response = await fetch(messageEventsUrl(), {
         headers: {
           Accept: 'text/event-stream',
           ...contextHeaders()
         },
         credentials: 'include',
         cache: 'no-store',
-        signal: controller.signal
+        signal: connection.signal
       })
+
+      if (stopped || connection.signal.aborted || controller !== connection) return
 
       if (!response.ok) {
         if (response.status === 401 || response.status === 403) {
-          status('unauthorized')
+          status(response.status === 403 ? 'forbidden' : 'unauthorized')
           shouldReconnect = false
           if (response.status === 401 && onUnauthorized) onUnauthorized()
           return
         }
         throw new Error(`La solicitud de eventos falló con el estado HTTP ${response.status}.`)
       }
+      const contentType = response.headers.get('content-type')?.split(';')[0].trim().toLowerCase()
+      if (contentType !== 'text/event-stream') throw new Error('El servidor no abrió un canal de eventos SSE.')
       if (!response.body) throw new Error('La respuesta de eventos no tiene un contenido legible.')
 
       reconnectAttempt = 0
       status('connected')
       if (onEvent) onEvent({ event: 'connected', id: '', data: null })
-      await consume(response)
+      await consume(response, connection)
     } catch (error) {
-      if (!stopped && error.name !== 'AbortError') status('error')
+      if (!stopped && controller === connection && error.name !== 'AbortError') status('error')
     } finally {
-      controller = null
-      if (!stopped && shouldReconnect) scheduleReconnect()
+      if (controller === connection) {
+        controller = null
+        if (!stopped && shouldReconnect) scheduleReconnect()
+      }
     }
   }
 

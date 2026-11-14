@@ -1,5 +1,5 @@
 <script setup>
-import { reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { store } from '../store'
 import { catalogApi } from '../api'
 import { asList, catalogLabel } from '../presentation'
@@ -8,12 +8,20 @@ import AppIcon from './ui/AppIcon.vue'
 import PageHeader from './ui/PageHeader.vue'
 import EmptyState from './ui/EmptyState.vue'
 import EnvironmentBadge from './ui/EnvironmentBadge.vue'
+import ServiceIdentitiesModal from './ServiceIdentitiesModal.vue'
 
-const emit = defineEmits(['selected'])
+const emit = defineEmits(['selected', 'workspace-selected'])
 const organizationName = ref('')
 const busy = ref(false)
 const error = ref('')
 const modal = ref('')
+const pendingDelete = ref(null)
+const deleteName = ref('')
+const deleteConfirmed = ref(false)
+const notice = ref('')
+const canDelete = computed(() => pendingDelete.value && !busy.value && deleteConfirmed.value
+  && deleteName.value === pendingDelete.value.name
+  && pendingDelete.value.organizationId === store.activeOrganization?.id)
 const applicationEnvironments = ref({})
 const environmentErrors = ref({})
 let environmentVersion = 0
@@ -38,6 +46,7 @@ function organizationCount(id) {
 
 function openCreate() {
   error.value = ''
+  notice.value = ''
   modal.value = store.activeOrganization ? 'application' : 'organization'
 }
 const applicationForm = reactive({
@@ -61,7 +70,10 @@ async function perform(action) {
 }
 
 function openOrganization(organization) {
-  return perform(() => store.selectOrganization(organization))
+  return perform(async () => {
+    await store.selectOrganization(organization)
+    emit('workspace-selected')
+  })
 }
 
 function createOrganization() {
@@ -70,6 +82,7 @@ function createOrganization() {
     await store.createPersonalOrganization(organizationName.value.trim())
     organizationName.value = ''
     modal.value = ''
+    emit('workspace-selected')
   })
 }
 
@@ -89,10 +102,34 @@ function select(app) {
   })
 }
 
-// Las aplicaciones consumidoras leen sus mensajes con estos dos identificadores. Se copian al
-// portapapeles listos para pegar en la configuración del backend y del front, sin mostrarlos.
-const copied = ref('')
-let copiedTimer = 0
+function requestDelete(app) {
+  if (busy.value || store.contextsLoading) return
+  error.value = ''
+  notice.value = ''
+  deleteName.value = ''
+  deleteConfirmed.value = false
+  pendingDelete.value = { id: app.id, name: app.name, organizationId: store.activeOrganization.id }
+}
+
+function closeDelete() {
+  if (busy.value) return
+  pendingDelete.value = null
+  error.value = ''
+}
+
+function deleteApplication() {
+  if (!canDelete.value) return
+  const application = pendingDelete.value
+  return perform(async () => {
+    await store.deletePersonalApplication(application.id)
+    pendingDelete.value = null
+    notice.value = `Se eliminó la aplicación ${application.name} y sus datos asociados.`
+  })
+}
+
+// Las aplicaciones consumidoras se identifican con su identidad de servicio: el propietario asocia el
+// client_id de cada identidad al ambiente que consume y ya no se copian identificadores.
+const identitiesApp = ref(null)
 const ENVIRONMENT_ORDER = ['develop', 'testing', 'produccion']
 function environmentsInOrder(app) {
   const rank = (env) => {
@@ -101,28 +138,12 @@ function environmentsInOrder(app) {
   }
   return [...(applicationEnvironments.value[app.id] || [])].sort((a, b) => rank(a) - rank(b))
 }
-async function copyIdentifiers(app, env) {
-  const text = [
-    `MESSAGEUCOLAB_APPLICATION_ID=${app.id}`,
-    `MESSAGEUCOLAB_ENVIRONMENT_ID=${env.id}`,
-    `VITE_MESSAGEUCOLAB_APPLICATION_ID=${app.id}`,
-    `VITE_MESSAGEUCOLAB_ENVIRONMENT_ID=${env.id}`
-  ].join('\n')
-  error.value = ''
-  try {
-    await navigator.clipboard.writeText(text)
-    copied.value = `${app.id}:${env.id}`
-    clearTimeout(copiedTimer)
-    copiedTimer = setTimeout(() => (copied.value = ''), 2500)
-  } catch {
-    error.value = 'No se pudieron copiar los identificadores. Revisa que el navegador permita usar el portapapeles.'
-  }
-}
-
 function back() {
   store.activeOrganization = null
   store.organizationApplications = []
   error.value = ''
+  notice.value = ''
+  emit('workspace-selected')
 }
 </script>
 
@@ -134,7 +155,8 @@ function back() {
       {{ store.contextsError }}
       <button class="link" :disabled="busy || store.contextsLoading" @click="store.loadSessionApplications()">Reintentar</button>
     </p>
-    <p v-if="error && !modal" class="alert error" role="alert">{{ error }}</p>
+    <p v-if="error && !modal && !pendingDelete" class="alert error" role="alert">{{ error }}</p>
+    <p v-if="notice" class="info" role="status">{{ notice }}</p>
 
     <fieldset :disabled="busy || store.contextsLoading">
       <template v-if="!store.activeOrganization">
@@ -148,11 +170,7 @@ function back() {
         <div class="workspace-cards">
           <div v-for="app in store.organizationApplications" :key="app.id">
             <button class="workspace-item" @click="select(app)"><span class="workspace-item-icon"><AppIcon name="grid" :size="29" /></span><span class="workspace-item-copy"><strong>{{ app.name }}</strong><small>Idioma base: {{ catalogLabel(app.language?.name) || 'no disponible en el catálogo' }}</small><span class="badge-list"><EnvironmentBadge v-for="env in applicationEnvironments[app.id] || []" :key="env.id" :name="env.name" /><small v-if="!applicationEnvironments[app.id] && !environmentErrors[app.id]">Cargando ambientes…</small></span></span><AppIcon name="chevron" /></button>
-            <div v-if="applicationEnvironments[app.id]?.length" class="copy-ids">
-              <span>Copiar identificadores:</span>
-              <button v-for="env in environmentsInOrder(app)" :key="env.id" type="button" class="secondary copy-ids-button" :aria-label="`Copiar los identificadores de ${app.name} en ${env.name}`" @click="copyIdentifiers(app, env)"><AppIcon :name="copied === `${app.id}:${env.id}` ? 'check' : 'copy'" :size="14" />{{ env.name }}</button>
-              <span v-if="copied.startsWith(`${app.id}:`)" class="copy-ids-done" role="status">Copiados al portapapeles</span>
-            </div>
+            <div class="application-actions"><button v-if="applicationEnvironments[app.id]?.length" type="button" class="link" :aria-label="`Identidades de servicio de ${app.name}`" @click="identitiesApp = app"><AppIcon name="shield" :size="15" />Identidades de servicio</button><button type="button" class="link danger" :aria-label="`Eliminar aplicación ${app.name}`" @click="requestDelete(app)"><AppIcon name="trash" :size="15" />Eliminar aplicación</button></div>
             <p v-if="environmentErrors[app.id]" class="alert error" role="alert">No se pudieron consultar los ambientes: {{ environmentErrors[app.id] }}</p>
           </div>
         </div>
@@ -165,5 +183,25 @@ function back() {
         <p v-if="error" class="alert error" role="alert">{{ error }}</p><footer class="form-actions"><button type="button" class="secondary" :disabled="busy" @click="modal = ''">Cancelar</button><button type="submit" :disabled="busy">{{ busy ? 'Guardando…' : modal === 'organization' ? 'Crear organización' : 'Crear aplicación' }}</button></footer>
       </form>
     </AppModal>
+    <ServiceIdentitiesModal v-if="identitiesApp" :application="identitiesApp" :environments="environmentsInOrder(identitiesApp)" @close="identitiesApp = null" />
+    <AppModal v-if="pendingDelete" title="Eliminar aplicación" description="Esta acción es permanente y afecta todos sus ambientes, incluido Produccion." :busy="busy" @close="closeDelete">
+      <form class="modal-form application-delete-form" @submit.prevent="deleteApplication">
+        <p>Se eliminará <strong>{{ pendingDelete.name }}</strong> junto con todas sus funcionalidades, mensajes, traducciones en caché, ambientes e importaciones. No se eliminará la organización ni otras aplicaciones. Se conservará el historial de auditoría.</p>
+        <fieldset :disabled="busy">
+          <label>Escribe el nombre exacto de la aplicación para continuar<input v-model="deleteName" required autocomplete="off" :placeholder="pendingDelete.name" /></label>
+          <label class="application-delete-confirm"><input v-model="deleteConfirmed" type="checkbox" required /><span>Entiendo que se eliminarán todos los datos de gestión de esta aplicación y que no se puede deshacer.</span></label>
+        </fieldset>
+        <p v-if="error" class="alert error" role="alert">{{ error }}</p>
+        <footer class="form-actions"><button type="button" class="secondary" :disabled="busy" @click="closeDelete">Cancelar</button><button type="submit" class="secondary danger" :disabled="!canDelete"><AppIcon name="trash" :size="16" />{{ busy ? 'Eliminando…' : 'Eliminar aplicación y sus datos' }}</button></footer>
+      </form>
+    </AppModal>
   </section>
 </template>
+
+<style scoped>
+.application-actions { display: flex; justify-content: flex-end; gap: 16px; margin-top: 8px; }
+:global(.app-modal:has(.application-delete-form)) { width: min(620px, calc(100vw - 32px)); }
+.business-ui .application-delete-confirm { display: flex; flex-direction: row; align-items: flex-start; gap: 10px; }
+.business-ui .application-delete-confirm input[type="checkbox"] { margin: 2px 0 0; flex-shrink: 0; }
+.application-delete-confirm span { flex: 1; min-width: 0; }
+</style>

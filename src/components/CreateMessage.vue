@@ -83,7 +83,7 @@ async function createMessage() {
   if (saving.value || success.value) return
   success.value = ''
   formError.value = ''
-  if (!/^[A-Z0-9 ]{1,50}$/.test(form.code.trim())) return (formError.value = 'El código debe tener entre 1 y 50 letras, números o espacios, sin el prefijo MSG_.')
+  if (!/^[A-Z0-9 ]{1,500}$/.test(form.code.trim())) return (formError.value = 'El código debe tener entre 1 y 500 letras, números o espacios, sin el prefijo MSG_.')
   if (!form.environmentIds.length) return (formError.value = 'Selecciona al menos un ambiente.')
   if (!activeFunctionalities.value.some((item) => item.id === form.functionalityId)) {
     formError.value = 'Selecciona una funcionalidad activa de la aplicación.'
@@ -160,9 +160,9 @@ async function createMessage() {
                 Código <span class="required">*</span>
                 <div class="input-prefix">
                   <span>MSG_</span>
-                  <input v-model="codeInput" required maxlength="50" pattern="[A-Za-z0-9 ]{1,50}" title="Entre 1 y 50 letras, números o espacios; sin guiones." placeholder="BIENVENIDA" />
+                  <input v-model="codeInput" required maxlength="500" pattern="[A-Za-z0-9 ]{1,500}" title="Entre 1 y 500 letras, números o espacios; sin guiones." placeholder="BIENVENIDA" />
                 </div>
-                <small>{{ form.code.length }}/50 · Se guarda como {{ toMessageCode(form.code) || 'MSG_…' }}</small>
+                <small>{{ form.code.length }}/500 · Se guarda como {{ toMessageCode(form.code) || 'MSG_…' }}</small>
               </label>
               <div class="field functionality-field">
                 <label for="message-functionality">Funcionalidad <span class="required">*</span></label>
@@ -191,12 +191,12 @@ async function createMessage() {
             <h3><span class="section-number">4</span>Contenido</h3>
             <div class="form-grid two">
               <label>Título <span class="required">*</span>
-                <input v-model="form.title" required minlength="10" maxlength="200" placeholder="Ej. Credenciales incorrectas" />
-                <small :class="{ 'field-warning': form.title.length > 0 && form.title.trim().length < 10 }">{{ form.title.length }}/200 caracteres · mínimo 10</small>
+                <input v-model="form.title" required minlength="5" maxlength="1000" placeholder="Ej. Credenciales incorrectas" />
+                <small :class="{ 'field-warning': form.title.length > 0 && form.title.trim().length < 5 }">{{ form.title.length }}/1000 caracteres · mínimo 5</small>
               </label>
               <label>Contenido <span class="required">*</span>
-                <textarea v-model="form.content" required minlength="10" maxlength="500" rows="2" placeholder="Escribe el contenido del mensaje…"></textarea>
-                <small :class="{ 'field-warning': form.content.length > 0 && form.content.trim().length < 10 }">{{ form.content.length }}/500 caracteres · mínimo 10</small>
+                <textarea v-model="form.content" required minlength="5" maxlength="2000" rows="2" placeholder="Escribe el contenido del mensaje…"></textarea>
+                <small :class="{ 'field-warning': form.content.length > 0 && form.content.trim().length < 5 }">{{ form.content.length }}/2000 caracteres · mínimo 5</small>
               </label>
             </div>
           </section>
